@@ -1,0 +1,10 @@
+[project]
+name = "linalg-solver"
+version = "0.1.0"
+description = "A tool for solving linear algebra problems, with a focus on visualizing the process"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "sympy>=1.12.1",
+]
+scripts = { linalg-solver = "main:main" }
