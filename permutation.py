@@ -1,12 +1,13 @@
 from random import shuffle
 
+
 class Permutation:
     def __init__(self, perm: list[int]):
         self.perm = perm
-    
+
     def __call__(self, i: int) -> int:
         return self.perm[i]
-    
+
     def __len__(self) -> int:
         return len(self.perm)
 
@@ -22,7 +23,7 @@ class Permutation:
                     visited[j] = True
                     cycle.append(j)
                     j = self.perm[j]
-                if len(cycle) > 1: # Only include non-trivial cycles
+                if len(cycle) > 1:  # Only include non-trivial cycles
                     cycles.append(cycle)
         return cycles
 
@@ -38,10 +39,8 @@ class Permutation:
         if not cycles:
             return "\\text{id}"
         return "".join(f"({' '.join(map(str, cycle))})" for cycle in cycles)
-    
-    def random(n: int) -> 'Permutation':
+
+    def random(n: int) -> "Permutation":
         perm = list(range(n))
         shuffle(perm)
         return Permutation(perm)
-    
-    
