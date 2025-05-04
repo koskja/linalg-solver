@@ -10,3 +10,7 @@ wheels/
 .venv
 .vscode
 uv.lock
+
+res.*
+output.*
+!res.tex
