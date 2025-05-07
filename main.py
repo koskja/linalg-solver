@@ -1,17 +1,29 @@
+from fmt import cformat
 from linalg import Matrix
-import log as logger_module
+from log import log, nest_logger
+import sympy
+import random
 
 
 def main():
-    with logger_module.nest_logger() as lg:
-        A = [[0, -1, 0, 0], [1, 0, 0, 0], [0, 0, 0, -2], [0, 0, -3, 0]]
-        A = Matrix(A)
-        B = Matrix([[5, 6], [7, 8]])
-        C = Matrix([[2, 3], [8, 5]])
-        D = Matrix([[A, B, C], [C, C, B], [A, B, A]])
-        E = Matrix([[C, C, B], [B, A, A], [C, B, A]])
-        # d = Matrix.from_block_matrix([[A, B], [C, A]]).determinant()
-        e = A.eigenvalues(real_only=True)
+    randbool = lambda: random.randint(0, 1) == 1
+    upper_bound = random.randint(1, 4)
+    do_negatives = randbool()
+    lower_bound = -upper_bound if do_negatives else 0
+    r = lambda: sympy.Rational(random.randint(lower_bound, upper_bound), 1)
+    n = random.randint(2, 4)
+    log_level = random.randint(0, 3)
+    with nest_logger() as lg:
+        for i in range(1):
+            R = Matrix([[r() for _ in range(n)] for _ in range(n)])
+            b = [r() for _ in range(n)]
+            a = R.find_preimage_of(
+                b,
+                log_matrices=log_level >= 1,
+                log_steps=log_level >= 2,
+                log_result=log_level >= 3,
+            )
+            log(r"\[ %s \]", a)
     logs = str(lg)
     print(logs)
 

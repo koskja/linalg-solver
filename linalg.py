@@ -1,5 +1,7 @@
-from typing import Iterator, List, Tuple, Any
+from copy import deepcopy
+from typing import Dict, Iterator, List, Tuple, Any
 import itertools
+import sympy
 
 from fmt import *
 from log import log, nest_appending_logger
@@ -47,6 +49,12 @@ class Matrix:
         if self.rows == 0:
             return self._cols
         return len(self.items[0])
+
+    def get_row(self, i: int) -> List[any]:
+        return self.items[i]
+
+    def get_col(self, j: int) -> List[any]:
+        return [row[j] for row in self.items]
 
     def inorder_slot_iter(self) -> Iterator[Tuple[int, int]]:
         for i in range(self.rows):
@@ -285,7 +293,7 @@ class Matrix:
             res.items[i][i] = item
         return res
 
-    def eigenvalues(self, real_only: bool = False) -> List[Tuple[any, int]]:
+    def eigenvalues(self, real_only: bool = False) -> Dict[any, int]:
         if self.rows != self.cols:
             raise ValueError("Eigenvalues require a square matrix")
         n = self.rows
@@ -342,3 +350,310 @@ class Matrix:
             eigenvalues_log_str,
         )
         return roots
+
+    @classmethod
+    def new_vector(cls, items: List[any]) -> "Matrix":
+        return cls([[i] for i in items])
+
+    class AffineSubspace:
+        def __init__(self, vec: List[any], mat: "Matrix"):
+            self.vec = vec
+            self.generators = mat
+
+        def get_one(self) -> List[any]:
+            return self.vec
+
+        def cformat(self, arg_of="") -> str:
+            if (
+                self.generators is None
+                or self.generators.rows == 0
+                or self.generators.cols == 0
+            ):
+                return r" %s " % cformat(Matrix.new_vector(self.vec))
+            all_zeros = all(v == 0 for v in self.vec)
+            generators = []
+            for i in range(self.generators.cols):
+                generators.append(
+                    cformat(Matrix.new_vector(self.generators.get_col(i)))
+                )
+            span = r" \text{span} \hspace{0.1em} \left\{ %s \right\} " % ", ".join(
+                generators
+            )
+            return r" %s %s  " % (
+                cformat(Matrix.new_vector(self.vec)) + " + " if not all_zeros else "",
+                span,
+            )
+
+    class NoSolution:
+        def __init__(self):
+            pass
+
+        def __repr__(self):
+            return "NoSolution()"
+
+        def cformat(self, arg_of=""):
+            return r"\text{No solution}"
+
+    def _q_find_preimage_of(self, vec: List[any]) -> "AffineSubspace | NoSolution":
+        import sympy
+
+        # Convert self.items and vec to sympy matrices
+        A = sympy.Matrix(self.items)
+        b = sympy.Matrix(vec)
+        # Try to solve the system
+        sol = sympy.linsolve((A, b))
+        if not sol:
+            return Matrix.NoSolution()
+        # linsolve returns a FiniteSet of tuples (possibly with parameters)
+        sol = list(sol)
+        if not sol:
+            return Matrix.NoSolution()
+        # Take the first solution tuple
+        s = sol[0]
+        # If the solution is fully numeric, return as a single point
+        if all(not hasattr(x, "free_symbols") or len(x.free_symbols) == 0 for x in s):
+            return Matrix.AffineSubspace(list(s), Matrix.zero(len(s), 0))
+        # Otherwise, extract particular solution and generators
+        # Find all parameters (free symbols)
+        params = set()
+        for x in s:
+            if hasattr(x, "free_symbols"):
+                params |= x.free_symbols
+        params = sorted(params, key=lambda x: str(x))
+        # Build the particular solution (set all params to 0)
+        subs = {p: 0 for p in params}
+        particular = [x.subs(subs) for x in s]
+        # Build generators: for each param, set that param to 1, others to 0
+        generators = []
+        for i, p in enumerate(params):
+            subs = {q: 0 for q in params}
+            subs[p] = 1
+            gen = [x.subs(subs) - x.subs({q: 0 for q in params}) for x in s]
+            generators.append(gen)
+        if generators:
+            gen_mat = Matrix([list(col) for col in zip(*generators)])
+        else:
+            gen_mat = Matrix.zero(len(s), 0)
+        return Matrix.AffineSubspace(particular, gen_mat)
+
+    def find_preimage_of(
+        self,
+        vec: List[any],
+        log_matrices: bool = False,
+        log_steps: bool = False,
+        log_result: bool = False,
+    ) -> "AffineSubspace | NoSolution":
+        """
+        Returns the affine subspace of solutions to self * x = vec, or Matrix.NoSolution() if inconsistent.
+        """
+        if self.rows != len(vec):
+            raise ValueError("Matrix dimensions must match")
+        # If no logging, quietly use sympy
+        if not log_matrices and not log_steps and not log_result:
+            return self._q_find_preimage_of(vec)
+        A = deepcopy(self)
+        for i in range(A.rows):
+            A.items[i].append(vec[i])
+        intermediate_matrices = [make_latex_augmented_matrix(A.items)]
+        intermediate_steps = []
+        pivot_i, pivot_j = 0, 0
+        step = 0
+        while pivot_i < A.rows and pivot_j < A.cols:
+            if A.items[pivot_i][pivot_j] == 0:
+                swapped = False
+                for i in range(pivot_i + 1, A.rows):
+                    if A.items[i][pivot_j] != 0:
+                        A.items[pivot_i], A.items[i] = A.items[i], A.items[pivot_i]
+                        intermediate_matrices.append(
+                            make_latex_augmented_matrix(A.items)
+                        )
+                        intermediate_steps.append(
+                            r"\textbf{S%s}: Swap rows $R_{%d}$ and $R_{%d}$"
+                            % (step, pivot_i + 1, i + 1)
+                        )
+                        step += 1
+                        swapped = True
+                        break
+                if not swapped:
+                    pivot_j += 1
+                    continue
+            # Normalize pivot column
+            first_nonzero_row = None
+            last_nonzero_row = None
+            normalized = False
+            for k in range(pivot_i, A.rows):
+                factor = A.items[k][pivot_j]
+                if factor == 0:
+                    continue
+                if first_nonzero_row is None:
+                    first_nonzero_row = k
+                last_nonzero_row = k
+                if factor != 1:
+                    normalized = True
+                for j in range(pivot_j, A.cols):
+                    old_val = A.items[k][j]
+                    A.items[k][j] = A.items[k][j] / factor
+                    normalized = normalized or A.items[k][j] != old_val
+            if normalized:
+                intermediate_matrices.append(make_latex_augmented_matrix(A.items))
+                if first_nonzero_row == last_nonzero_row:
+                    intermediate_steps.append(
+                        r"\textbf{N%s}: Normalize pivot row %s" % (step, pivot_i + 1)
+                    )
+                else:
+                    intermediate_steps.append(
+                        r"\textbf{N%s}: Normalize rows %s to %s"
+                        % (step, first_nonzero_row + 1, last_nonzero_row + 1)
+                    )
+                step += 1
+            # Eliminate entries below pivot
+            first_nonzero_row = None
+            eliminated = False
+            for k in range(pivot_i + 1, A.rows):
+                factor = A.items[k][pivot_j]
+                if factor == 0:
+                    continue
+                if first_nonzero_row is None:
+                    first_nonzero_row = k
+                if factor != 1:
+                    raise ValueError("Column entry is not 1; invariant violated")
+                for j in range(pivot_j, A.cols):
+                    old_val = A.items[k][j]
+                    A.items[k][j] = A.items[k][j] - A.items[pivot_i][j]
+                    eliminated = eliminated or A.items[k][j] != old_val
+            if first_nonzero_row is not None and eliminated:
+                intermediate_matrices.append(make_latex_augmented_matrix(A.items))
+                intermediate_steps.append(
+                    r"\textbf{E%s}: Eliminate entries below pivot in column %s"
+                    % (step, pivot_j + 1)
+                )
+                step += 1
+            pivot_i += 1
+            pivot_j += 1
+        # --- Forward elimination done, now do reverse elimination ---
+        pivots = []
+        for i in range(min(A.rows, A.cols)):
+            for j in range(A.cols - 1):
+                if abs(A.items[i][j]) != 0:
+                    pivots.append((i, j))
+                    break
+        for idx in reversed(range(len(pivots))):
+            row, col = pivots[idx]
+            eliminated = False
+            for k in range(row):
+                factor = A.items[k][col]
+                if factor == 0:
+                    continue
+                for j in range(col, A.cols):
+                    old_val = A.items[k][j]
+                    A.items[k][j] = A.items[k][j] - factor * A.items[row][j]
+                    eliminated = eliminated or A.items[k][j] != old_val
+            if eliminated:
+                intermediate_matrices.append(make_latex_augmented_matrix(A.items))
+                intermediate_steps.append(
+                    r"\textbf{E%s}: Eliminate above pivot in column %s"
+                    % (step, col + 1)
+                )
+                step += 1
+        total_cols = 0
+        last = []
+        out = []
+        for matrix in intermediate_matrices:
+            total_cols += A.cols
+            last.append(matrix)
+            if total_cols > 10:
+                out.append(last)
+                last = [""]
+                total_cols = 0
+        if last:
+            out.append(last)
+        if log_matrices:
+            log(r"Intermediate matrices:")
+            out = [r" $$ " + r" \sim ".join(chunk) + r" $$ \\" for chunk in out]
+            for line in out:
+                log(r"%s", line)
+        if log_steps:
+            for step_desc in intermediate_steps:
+                log(r"%s \\", step_desc)
+
+        # --- Construct the affine subspace solution ---
+        # A is now in (almost) reduced row echelon form
+        m, n_aug = len(A.items), len(A.items[0])
+        n = n_aug - 1  # number of variables
+        pivots = [-1] * m  # pivot column for each row, -1 if none
+        pivot_cols = set()
+        for i in range(m):
+            for j in range(n):
+                if abs(A.items[i][j]) != 0:
+                    pivots[i] = j
+                    pivot_cols.add(j)
+                    break
+        logs = []
+        with nest_appending_logger(logs):
+            free_vars = [j for j in range(n) if j not in pivot_cols]
+            log(
+                r"\textbf{Pivot columns:} $ %s$",
+                ", ".join([f"x_{{{j+1}}}" for j in sorted(pivot_cols)]),
+            )
+            log(
+                r"\textbf{Free variables:} $ %s$",
+                ", ".join([f"x_{{{j+1}}}" for j in free_vars]),
+            )
+            # Check for inconsistency: row of all zeros except last col nonzero
+            inconsistent = False
+            for i in range(m):
+                if (
+                    all(abs(A.items[i][j]) == 0 for j in range(n))
+                    and abs(A.items[i][-1]) != 0
+                ):
+                    row_matrix = Matrix([A.items[i]])
+                    log(
+                        r"\textbf{Inconsistent row detected (row %s):} $ %s $",
+                        i + 1,
+                        make_latex_augmented_matrix(row_matrix.items),
+                    )
+                    inconsistent = True
+                    break
+            if inconsistent:
+                log(r"\[ \boxed{\text{The system is inconsistent: no solution.}} \]")
+                return Matrix.NoSolution()
+            # Build particular solution (all free vars = 0)
+            particular = [0] * n
+            for i in range(m):
+                if pivots[i] != -1:
+                    j = pivots[i]
+                    rhs = A.items[i][-1]
+                    # Subtract free var contributions (all zero for particular)
+                    particular[j] = rhs
+            log(
+                r"\textbf{Particular solution (free vars = 0):} \[ %s \]",
+                make_latex_vector(particular),
+            )
+            # Build nullspace generators (one for each free var)
+            generators = []
+            for idx, free_j in enumerate(free_vars):
+                gen = [0] * n
+                gen[free_j] = 1
+                for i in range(m):
+                    if pivots[i] != -1:
+                        j = pivots[i]
+                        # The coefficient of free_j in row i
+                        coeff = -A.items[i][free_j]
+                        gen[j] = coeff
+                log(
+                    r"\textbf{Nullspace generator for $x_{%s}$:} \[ %s \]",
+                    free_j + 1,
+                    make_latex_vector(gen),
+                )
+                generators.append(gen)
+            if generators:
+                gen_mat = Matrix([list(col) for col in zip(*generators)])
+                log(
+                    r"\textbf{Generator matrix (nullspace basis):} \[ %s \]",
+                    gen_mat.cformat(),
+                )
+            else:
+                gen_mat = None
+        if log_result:
+            log("\n".join(logs))
+        return Matrix.AffineSubspace(particular, gen_mat)

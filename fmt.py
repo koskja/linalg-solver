@@ -64,6 +64,21 @@ def make_latex_matrix(items: List[List[any]]) -> str:
     return start + (r"\\" + "\n").join(rows) + end
 
 
+def make_latex_vector(items: List[any]) -> str:
+    start = r"\begin{pmatrix}"
+    end = r"\end{pmatrix}"
+    return start + (r"\\" + "\n").join([cformat(item) for item in items]) + end
+
+
+def make_latex_augmented_matrix(items: List[List[any]]) -> str:
+    if len(items[0]) <= 1:
+        return make_latex_matrix(items)
+    rows = [r" & ".join([cformat(item) for item in row]) for row in items]
+    start = r"\left(\begin{array}{" + "c" * (len(items[0]) - 1) + "|c}"
+    end = r"\end{array}\right)"
+    return start + r" \\ ".join(rows) + end
+
+
 def multi_add_vargs(*items: List[any]) -> any:
     return multi_add(list(items))
 
