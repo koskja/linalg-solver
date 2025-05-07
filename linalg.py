@@ -436,6 +436,197 @@ class Matrix:
             gen_mat = Matrix.zero(len(s), 0)
         return Matrix.AffineSubspace(particular, gen_mat)
 
+    def row_reduce(self, bar_col: int = None):
+        """
+        Perform Gaussian elimination (row reduction) on an augmented matrix.
+        Returns the reduced matrix, pivot information, and logs.
+        """
+        # bar_col is the first column after the bar (the augmented column)
+        from copy import deepcopy
+        from fmt import make_latex_augmented_matrix
+
+        A = deepcopy(self.items)
+        m, n = len(A), len(A[0])
+        pivot_i, pivot_j = 0, 0
+        pivots = []
+        bar_col = bar_col or n - 1
+        intermediate_matrices = [make_latex_augmented_matrix(A, bar_col=bar_col)]
+        intermediate_steps = []
+        step = 0
+        while pivot_i < m and pivot_j < bar_col:
+            if A[pivot_i][pivot_j] == 0:
+                swapped = False
+                for i in range(pivot_i + 1, m):
+                    if A[i][pivot_j] != 0:
+                        A[pivot_i], A[i] = A[i], A[pivot_i]
+                        intermediate_matrices.append(
+                            make_latex_augmented_matrix(A, bar_col=bar_col)
+                        )
+                        intermediate_steps.append(
+                            r"\textbf{S%s}: Swap rows $R_{%d}$ and $R_{%d}$"
+                            % (step, pivot_i + 1, i + 1)
+                        )
+                        step += 1
+                        swapped = True
+                        break
+                if not swapped:
+                    pivot_j += 1
+                    continue
+            # Normalize pivot row
+            factor = A[pivot_i][pivot_j]
+            normalized = False
+            if factor != 1:
+                for j in range(pivot_j, n):
+                    old_val = A[pivot_i][j]
+                    A[pivot_i][j] = A[pivot_i][j] / factor
+                    normalized = normalized or A[pivot_i][j] != old_val
+            if normalized:
+                intermediate_matrices.append(
+                    make_latex_augmented_matrix(A, bar_col=bar_col)
+                )
+                intermediate_steps.append(
+                    r"\textbf{N%s}: Normalize pivot row %s" % (step, pivot_i + 1)
+                )
+                step += 1
+            # Eliminate entries below pivot
+            first_nonzero_row = None
+            eliminated = False
+            for k in range(pivot_i + 1, m):
+                factor = A[k][pivot_j]
+                if factor == 0:
+                    continue
+                if first_nonzero_row is None:
+                    first_nonzero_row = k
+                for j in range(pivot_j, n):
+                    old_val = A[k][j]
+                    A[k][j] = A[k][j] - factor * A[pivot_i][j]
+                    eliminated = eliminated or A[k][j] != old_val
+            if first_nonzero_row is not None and eliminated:
+                intermediate_matrices.append(
+                    make_latex_augmented_matrix(A, bar_col=bar_col)
+                )
+                intermediate_steps.append(
+                    r"\textbf{E%s}: Eliminate entries below pivot in column %s"
+                    % (step, pivot_j + 1)
+                )
+                step += 1
+            pivots.append((pivot_i, pivot_j))
+            pivot_i += 1
+            pivot_j += 1
+        # Reverse elimination (above pivots)
+        for idx in reversed(range(len(pivots))):
+            row, col = pivots[idx]
+            eliminated = False
+            for k in range(row):
+                factor = A[k][col]
+                if factor == 0:
+                    continue
+                for j in range(col, n):
+                    old_val = A[k][j]
+                    A[k][j] = A[k][j] - factor * A[row][j]
+                    eliminated = eliminated or A[k][j] != old_val
+            if eliminated:
+                intermediate_matrices.append(
+                    make_latex_augmented_matrix(A, bar_col=bar_col)
+                )
+                intermediate_steps.append(
+                    r"\textbf{E%s}: Eliminate above pivot in column %s"
+                    % (step, col + 1)
+                )
+                step += 1
+        return A, pivots, intermediate_matrices, intermediate_steps
+
+    def _check_inconsistency(self, reduced_items, n, bar_col, log_fn=None):
+        """
+        Check for inconsistency in the reduced augmented matrix.
+        Returns True if inconsistent, otherwise False. Optionally logs details.
+        """
+        from fmt import make_latex_augmented_matrix
+
+        m = len(reduced_items)
+        for i in range(m):
+            if (
+                all(abs(reduced_items[i][j]) == 0 for j in range(n))
+                and abs(reduced_items[i][bar_col]) != 0
+            ):
+                if log_fn:
+                    row_matrix = Matrix([reduced_items[i]])
+                    log_fn(
+                        r"\textbf{Inconsistent row detected (row %s):} $ %s $",
+                        i + 1,
+                        make_latex_augmented_matrix(row_matrix.items, bar_col=bar_col),
+                    )
+                    log_fn(
+                        r"\[ \boxed{\text{The system is inconsistent: no solution.}} \]"
+                    )
+                return True
+        return False
+
+    def _extract_affine_subspace(self, reduced_items, pivots, n, bar_col, log_fn=None):
+        """
+        Given a reduced augmented matrix and pivots, extract the particular solution and nullspace generators.
+        Optionally logs details.
+        """
+        from fmt import make_latex_vector
+
+        m = len(reduced_items)
+        pivots_row = [-1] * m  # pivot column for each row, -1 if none
+        pivot_cols = set()
+        for i, (row, col) in enumerate(pivots):
+            pivots_row[row] = col
+            pivot_cols.add(col)
+        free_vars = [j for j in range(n) if j not in pivot_cols]
+        if log_fn:
+            log_fn(
+                r"\textbf{Pivot columns:} $ %s$",
+                ", ".join([f"x_{{{j+1}}}" for j in sorted(pivot_cols)]),
+            )
+            log_fn(
+                r"\textbf{Free variables:} $ %s$",
+                ", ".join([f"x_{{{j+1}}}" for j in free_vars]),
+            )
+        # Build particular solution (all free vars = 0)
+        particular = [0] * n
+        for i in range(m):
+            if pivots_row[i] != -1:
+                j = pivots_row[i]
+                rhs = reduced_items[i][bar_col]
+                # Subtract free var contributions (all zero for particular)
+                particular[j] = rhs
+        if log_fn:
+            log_fn(
+                r"\textbf{Particular solution (free vars = 0):} \[ %s \]",
+                make_latex_vector(particular),
+            )
+        # Build nullspace generators (one for each free var)
+        generators = []
+        for idx, free_j in enumerate(free_vars):
+            gen = [0] * n
+            gen[free_j] = 1
+            for i in range(m):
+                if pivots_row[i] != -1:
+                    j = pivots_row[i]
+                    # The coefficient of free_j in row i
+                    coeff = -reduced_items[i][free_j]
+                    gen[j] = coeff
+            if log_fn:
+                log_fn(
+                    r"\textbf{Nullspace generator for $x_{%s}$:} \[ %s \]",
+                    free_j + 1,
+                    make_latex_vector(gen),
+                )
+            generators.append(gen)
+        if generators:
+            gen_mat = Matrix([list(col) for col in zip(*generators)])
+            if log_fn:
+                log_fn(
+                    r"\textbf{Generator matrix (nullspace basis):} \[ %s \]",
+                    gen_mat.cformat(),
+                )
+        else:
+            gen_mat = None
+        return particular, gen_mat
+
     def find_preimage_of(
         self,
         vec: List[any],
@@ -451,115 +642,26 @@ class Matrix:
         # If no logging, quietly use sympy
         if not log_matrices and not log_steps and not log_result:
             return self._q_find_preimage_of(vec)
+        from fmt import make_latex_augmented_matrix
+        from copy import deepcopy
+
+        # Build augmented matrix
         A = deepcopy(self)
         for i in range(A.rows):
             A.items[i].append(vec[i])
-        intermediate_matrices = [make_latex_augmented_matrix(A.items)]
-        intermediate_steps = []
-        pivot_i, pivot_j = 0, 0
-        step = 0
-        while pivot_i < A.rows and pivot_j < A.cols:
-            if A.items[pivot_i][pivot_j] == 0:
-                swapped = False
-                for i in range(pivot_i + 1, A.rows):
-                    if A.items[i][pivot_j] != 0:
-                        A.items[pivot_i], A.items[i] = A.items[i], A.items[pivot_i]
-                        intermediate_matrices.append(
-                            make_latex_augmented_matrix(A.items)
-                        )
-                        intermediate_steps.append(
-                            r"\textbf{S%s}: Swap rows $R_{%d}$ and $R_{%d}$"
-                            % (step, pivot_i + 1, i + 1)
-                        )
-                        step += 1
-                        swapped = True
-                        break
-                if not swapped:
-                    pivot_j += 1
-                    continue
-            # Normalize pivot column
-            first_nonzero_row = None
-            last_nonzero_row = None
-            normalized = False
-            for k in range(pivot_i, A.rows):
-                factor = A.items[k][pivot_j]
-                if factor == 0:
-                    continue
-                if first_nonzero_row is None:
-                    first_nonzero_row = k
-                last_nonzero_row = k
-                if factor != 1:
-                    normalized = True
-                for j in range(pivot_j, A.cols):
-                    old_val = A.items[k][j]
-                    A.items[k][j] = A.items[k][j] / factor
-                    normalized = normalized or A.items[k][j] != old_val
-            if normalized:
-                intermediate_matrices.append(make_latex_augmented_matrix(A.items))
-                if first_nonzero_row == last_nonzero_row:
-                    intermediate_steps.append(
-                        r"\textbf{N%s}: Normalize pivot row %s" % (step, pivot_i + 1)
-                    )
-                else:
-                    intermediate_steps.append(
-                        r"\textbf{N%s}: Normalize rows %s to %s"
-                        % (step, first_nonzero_row + 1, last_nonzero_row + 1)
-                    )
-                step += 1
-            # Eliminate entries below pivot
-            first_nonzero_row = None
-            eliminated = False
-            for k in range(pivot_i + 1, A.rows):
-                factor = A.items[k][pivot_j]
-                if factor == 0:
-                    continue
-                if first_nonzero_row is None:
-                    first_nonzero_row = k
-                if factor != 1:
-                    raise ValueError("Column entry is not 1; invariant violated")
-                for j in range(pivot_j, A.cols):
-                    old_val = A.items[k][j]
-                    A.items[k][j] = A.items[k][j] - A.items[pivot_i][j]
-                    eliminated = eliminated or A.items[k][j] != old_val
-            if first_nonzero_row is not None and eliminated:
-                intermediate_matrices.append(make_latex_augmented_matrix(A.items))
-                intermediate_steps.append(
-                    r"\textbf{E%s}: Eliminate entries below pivot in column %s"
-                    % (step, pivot_j + 1)
-                )
-                step += 1
-            pivot_i += 1
-            pivot_j += 1
-        # --- Forward elimination done, now do reverse elimination ---
-        pivots = []
-        for i in range(min(A.rows, A.cols)):
-            for j in range(A.cols - 1):
-                if abs(A.items[i][j]) != 0:
-                    pivots.append((i, j))
-                    break
-        for idx in reversed(range(len(pivots))):
-            row, col = pivots[idx]
-            eliminated = False
-            for k in range(row):
-                factor = A.items[k][col]
-                if factor == 0:
-                    continue
-                for j in range(col, A.cols):
-                    old_val = A.items[k][j]
-                    A.items[k][j] = A.items[k][j] - factor * A.items[row][j]
-                    eliminated = eliminated or A.items[k][j] != old_val
-            if eliminated:
-                intermediate_matrices.append(make_latex_augmented_matrix(A.items))
-                intermediate_steps.append(
-                    r"\textbf{E%s}: Eliminate above pivot in column %s"
-                    % (step, col + 1)
-                )
-                step += 1
+        bar_col = A.cols - 1
+        # Use row_reduce with logging
+        reduced_items, pivots, intermediate_matrices, intermediate_steps = Matrix(
+            A.items
+        ).row_reduce(bar_col=bar_col)
+        m, n_aug = len(reduced_items), len(reduced_items[0])
+        n = n_aug - 1  # number of variables
+        # Prepare intermediate matrix logs
         total_cols = 0
         last = []
         out = []
         for matrix in intermediate_matrices:
-            total_cols += A.cols
+            total_cols += n_aug
             last.append(matrix)
             if total_cols > 10:
                 out.append(last)
@@ -574,86 +676,99 @@ class Matrix:
                 log(r"%s", line)
         if log_steps:
             for step_desc in intermediate_steps:
-                log(r"%s \\", step_desc)
-
-        # --- Construct the affine subspace solution ---
-        # A is now in (almost) reduced row echelon form
-        m, n_aug = len(A.items), len(A.items[0])
-        n = n_aug - 1  # number of variables
-        pivots = [-1] * m  # pivot column for each row, -1 if none
-        pivot_cols = set()
-        for i in range(m):
-            for j in range(n):
-                if abs(A.items[i][j]) != 0:
-                    pivots[i] = j
-                    pivot_cols.add(j)
-                    break
+                log(r"%s ", step_desc)
         logs = []
         with nest_appending_logger(logs):
-            free_vars = [j for j in range(n) if j not in pivot_cols]
-            log(
-                r"\textbf{Pivot columns:} $ %s$",
-                ", ".join([f"x_{{{j+1}}}" for j in sorted(pivot_cols)]),
+            # Check for inconsistency
+            inconsistent = self._check_inconsistency(
+                reduced_items, n, bar_col, log_fn=log
             )
-            log(
-                r"\textbf{Free variables:} $ %s$",
-                ", ".join([f"x_{{{j+1}}}" for j in free_vars]),
-            )
-            # Check for inconsistency: row of all zeros except last col nonzero
-            inconsistent = False
-            for i in range(m):
-                if (
-                    all(abs(A.items[i][j]) == 0 for j in range(n))
-                    and abs(A.items[i][-1]) != 0
-                ):
-                    row_matrix = Matrix([A.items[i]])
-                    log(
-                        r"\textbf{Inconsistent row detected (row %s):} $ %s $",
-                        i + 1,
-                        make_latex_augmented_matrix(row_matrix.items),
-                    )
-                    inconsistent = True
-                    break
             if inconsistent:
-                log(r"\[ \boxed{\text{The system is inconsistent: no solution.}} \]")
                 return Matrix.NoSolution()
-            # Build particular solution (all free vars = 0)
-            particular = [0] * n
-            for i in range(m):
-                if pivots[i] != -1:
-                    j = pivots[i]
-                    rhs = A.items[i][-1]
-                    # Subtract free var contributions (all zero for particular)
-                    particular[j] = rhs
-            log(
-                r"\textbf{Particular solution (free vars = 0):} \[ %s \]",
-                make_latex_vector(particular),
+            # Extract affine subspace
+            particular, gen_mat = self._extract_affine_subspace(
+                reduced_items, pivots, n, bar_col, log_fn=log
             )
-            # Build nullspace generators (one for each free var)
-            generators = []
-            for idx, free_j in enumerate(free_vars):
-                gen = [0] * n
-                gen[free_j] = 1
-                for i in range(m):
-                    if pivots[i] != -1:
-                        j = pivots[i]
-                        # The coefficient of free_j in row i
-                        coeff = -A.items[i][free_j]
-                        gen[j] = coeff
-                log(
-                    r"\textbf{Nullspace generator for $x_{%s}$:} \[ %s \]",
-                    free_j + 1,
-                    make_latex_vector(gen),
-                )
-                generators.append(gen)
-            if generators:
-                gen_mat = Matrix([list(col) for col in zip(*generators)])
-                log(
-                    r"\textbf{Generator matrix (nullspace basis):} \[ %s \]",
-                    gen_mat.cformat(),
-                )
-            else:
-                gen_mat = None
         if log_result:
             log("\n".join(logs))
         return Matrix.AffineSubspace(particular, gen_mat)
+
+    def inverse(
+        self,
+        log_matrices: bool = False,
+        log_steps: bool = False,
+        log_result: bool = False,
+    ):
+        """
+        Returns the inverse of the matrix as a new Matrix, or Matrix.NoSolution() if singular.
+        Uses sympy if no logging is requested, otherwise uses row reduction with logging.
+        """
+        if self.rows != self.cols:
+            raise ValueError("Matrix must be square to invert.")
+        n = self.rows
+        # Fast path: no logging, use sympy
+        if not log_matrices and not log_steps and not log_result:
+            import sympy
+
+            try:
+                inv = sympy.Matrix(self.items).inv()
+                return Matrix([list(inv.row(i)) for i in range(inv.rows)])
+            except Exception:
+                return Matrix.NoSolution()
+        # Logging path: use row reduction
+        from fmt import make_latex_augmented_matrix, make_latex_matrix
+        from copy import deepcopy
+
+        # Build augmented matrix [A | I]
+        A = deepcopy(self)
+        identity = Matrix.identity(n)
+        aug_items = [A.items[i] + identity.items[i] for i in range(n)]
+        bar_col = self.cols - 1
+        # Use row_reduce with logging
+        reduced_items, pivots, intermediate_matrices, intermediate_steps = Matrix(
+            aug_items
+        ).row_reduce(bar_col=bar_col + 1)
+        n_aug = len(reduced_items[0])
+        # Prepare intermediate matrix logs
+        total_cols = 0
+        last = []
+        out = []
+        for matrix in intermediate_matrices:
+            total_cols += n_aug
+            last.append(matrix)
+            if total_cols > 10:
+                out.append(last)
+                last = [""]
+                total_cols = 0
+        if last:
+            out.append(last)
+        if log_matrices:
+            log(r"Intermediate matrices:")
+            out = [r" $$ " + r" \sim ".join(chunk) + r" $$ \\" for chunk in out]
+            for line in out:
+                log(r"%s", line)
+        if log_steps:
+            for step_desc in intermediate_steps:
+                log(r"%s \\ ", step_desc)
+        logs = []
+        with nest_appending_logger(logs):
+            # Check if left block is identity
+            is_identity = True
+            for i in range(n):
+                for j in range(n):
+                    if (i == j and abs(reduced_items[i][j] - 1) > 1e-12) or (
+                        i != j and abs(reduced_items[i][j]) > 1e-12
+                    ):
+                        is_identity = False
+                        break
+                if not is_identity:
+                    break
+            if not is_identity:
+                log(r"\[ \boxed{\text{The matrix is singular: no inverse.}} \]")
+                return Matrix.NoSolution()
+            # Extract right block as inverse
+            inverse_items = [row[n:] for row in reduced_items]
+            log(r"\textbf{Inverse matrix:} \[ %s \]", make_latex_matrix(inverse_items))
+        if log_result:
+            log("\n".join(logs))
+        return Matrix(inverse_items)

@@ -16,14 +16,12 @@ def main():
     with nest_logger() as lg:
         for i in range(1):
             R = Matrix([[r() for _ in range(n)] for _ in range(n)])
-            b = [r() for _ in range(n)]
-            a = R.find_preimage_of(
-                b,
+            inv = R.inverse(
                 log_matrices=log_level >= 1,
                 log_steps=log_level >= 2,
                 log_result=log_level >= 3,
             )
-            log(r"\[ %s \]", a)
+            log(r"\[ %s \]", inv)
     logs = str(lg)
     print(logs)
 

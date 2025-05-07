@@ -61,22 +61,27 @@ def make_latex_matrix(items: List[List[any]]) -> str:
     start = r"\begin{pmatrix}"
     end = r"\end{pmatrix}"
     rows = [r" & ".join([cformat(item) for item in row]) for row in items]
-    return start + (r"\\" + "\n").join(rows) + end
+    return start + (r"\\[0.1em]" + "\n").join(rows) + end
 
 
 def make_latex_vector(items: List[any]) -> str:
     start = r"\begin{pmatrix}"
     end = r"\end{pmatrix}"
-    return start + (r"\\" + "\n").join([cformat(item) for item in items]) + end
+    return start + (r"\\[0.1em]" + "\n").join([cformat(item) for item in items]) + end
 
 
-def make_latex_augmented_matrix(items: List[List[any]]) -> str:
+def make_latex_augmented_matrix(items: List[List[any]], bar_col: int = None) -> str:
     if len(items[0]) <= 1:
         return make_latex_matrix(items)
+    if bar_col is None:
+        bar_col = len(items[0]) - 1
     rows = [r" & ".join([cformat(item) for item in row]) for row in items]
-    start = r"\left(\begin{array}{" + "c" * (len(items[0]) - 1) + "|c}"
+    # Build the column format string with a vertical bar at bar_col
+    n_cols = len(items[0])
+    col_format = "".join([("|c" if j == bar_col else "c") for j in range(n_cols)])
+    start = r"\left(\begin{array}{" + col_format + "}"
     end = r"\end{array}\right)"
-    return start + r" \\ ".join(rows) + end
+    return start + r" \\[0.1em] ".join(rows) + end
 
 
 def multi_add_vargs(*items: List[any]) -> any:
