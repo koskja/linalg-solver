@@ -1,8 +1,8 @@
 from copy import deepcopy
-from typing import Dict, Iterator, List, Tuple, Any
+from typing import Callable, Dict, Iterator, List, Tuple, Any
 import itertools
 import sympy
-
+import random
 from fmt import *
 from log import log, nest_appending_logger
 from permutation import Permutation
@@ -355,6 +355,11 @@ class Matrix:
     def new_vector(cls, items: List[any]) -> "Matrix":
         return cls([[i] for i in items])
 
+    def transpose(self) -> "Matrix":
+        return Matrix(
+            [[self.items[j][i] for j in range(self.rows)] for i in range(self.cols)]
+        )
+
     class AffineSubspace:
         def __init__(self, vec: List[any], mat: "Matrix"):
             self.vec = vec
@@ -362,6 +367,12 @@ class Matrix:
 
         def get_one(self) -> List[any]:
             return self.vec
+
+        def dim(self) -> int:
+            return self.generators.cols
+
+        def basis(self) -> List[List[any]]:
+            return self.generators.transpose().items
 
         def cformat(self, arg_of="") -> str:
             if (
@@ -395,8 +406,6 @@ class Matrix:
             return r"\text{No solution}"
 
     def _q_find_preimage_of(self, vec: List[any]) -> "AffineSubspace | NoSolution":
-        import sympy
-
         # Convert self.items and vec to sympy matrices
         A = sympy.Matrix(self.items)
         b = sympy.Matrix(vec)
@@ -708,8 +717,6 @@ class Matrix:
         n = self.rows
         # Fast path: no logging, use sympy
         if not log_matrices and not log_steps and not log_result:
-            import sympy
-
             try:
                 inv = sympy.Matrix(self.items).inv()
                 return Matrix([list(inv.row(i)) for i in range(inv.rows)])
@@ -772,3 +779,213 @@ class Matrix:
         if log_result:
             log("\n".join(logs))
         return Matrix(inverse_items)
+
+    def rank(self) -> int:
+        sympy_matrix = sympy.Matrix(self.items)
+        return sympy_matrix.rank()
+
+    def kernel(self) -> "AffineSubspace":
+        """
+        Returns the kernel (nullspace) of the matrix as an AffineSubspace (with zero vector as particular solution).
+        Uses find_preimage_of with the zero vector.
+        """
+        zero_vec = [0] * self.rows
+        # 0 always has a preimage, so we don't need to check for inconsistency
+        return self.find_preimage_of(zero_vec)
+
+    def find_eigenspace(self, eigenvalue: any) -> "AffineSubspace":
+        """
+        Returns the eigenspace for the given eigenvalue as an AffineSubspace (nullspace of A - lambda*I).
+        Uses kernel on (A - eigenvalue * I).
+        """
+        if self.rows != self.cols:
+            raise ValueError("Matrix must be square to find eigenspace.")
+        n = self.rows
+        from copy import deepcopy
+
+        A = deepcopy(self)
+        for i in range(n):
+            A.items[i][i] = A.items[i][i] - eigenvalue
+        return Matrix(A.items).kernel()
+
+    class DiagonalizationResult:
+        def __init__(self, eig_mults, success, P=None, P_inv=None, D=None):
+            self.eigenvalue_multiplicities = (
+                eig_mults  # Dict[any, (alg_mult, geom_mult)]
+            )
+            self.success = success
+            self.P = P
+            self.P_inv = P_inv
+            self.D = D
+
+        def __repr__(self):
+            return f"DiagonalizationResult(success={self.success}, eigenvalue_multiplicities={self.eigenvalue_multiplicities}, P={self.P}, P_inv={self.P_inv}, D={self.D})"
+
+        def cformat(self, arg_of=""):
+            logs = []
+            with nest_appending_logger(logs):
+                log("Diagonalization: " + ("Succeeded" if self.success else "Failed"))
+                log(r"\[ \begin{array}{|c|c|c|}")
+                log(r"\hline")
+                log(
+                    r"\text{Eigenvalue} & \text{Algebraic Mult.} & \text{Geometric Mult.} \\"
+                )
+                log(r"\hline")
+                for eigenvalue, (
+                    alg_mult,
+                    geom_mult,
+                ) in self.eigenvalue_multiplicities.items():
+                    log(r"%s & %s & %s \\", eigenvalue, alg_mult, geom_mult)
+                log(r"\hline")
+                log(r"\end{array} \]")
+                if self.success:
+                    log(r"\[ P = %s \]", self.P)
+                    log(r"\[ P^{-1} = %s \]", self.P_inv)
+                    log(r"\[ D = %s \]", self.D)
+            return r"\\".join(logs)
+
+    def eigenvalues_with_geometric_multiplicities(self) -> Dict[Any, Tuple[int, int]]:
+        """
+        Returns a dict mapping each eigenvalue to (algebraic multiplicity, geometric multiplicity).
+        """
+        alg_mults = self.eigenvalues()
+        result = {}
+        for eig, alg_mult in alg_mults.items():
+            eigenspace = self.find_eigenspace(eig)
+            geom_mult = eigenspace.dim() if hasattr(eigenspace, "dim") else 0
+            result[eig] = (alg_mult, geom_mult)
+        return result
+
+    def simplify(self):
+        """
+        Attempts to call sympy.simplify on all items in the matrix, in-place.
+        """
+        import sympy
+
+        for i in range(self.rows):
+            for j in range(self.cols):
+                try:
+                    self.items[i][j] = sympy.simplify(self.items[i][j])
+                except Exception:
+                    pass
+        return self
+
+    def diagonalize(self):
+        """
+        Attempts to diagonalize the matrix. Returns a DiagonalizationResult.
+        If diagonalizable, returns the change of basis matrices and diagonal matrix.
+        """
+        if self.rows != self.cols:
+            raise ValueError("Matrix must be square to diagonalize.")
+        n = self.rows
+        eig_mults = self.eigenvalues_with_geometric_multiplicities()
+        # Collect all eigenvectors
+        basis_vectors = []
+        for eig, (alg_mult, geom_mult) in eig_mults.items():
+            eigenspace = self.find_eigenspace(eig)
+            if hasattr(eigenspace, "basis"):
+                basis_vectors.extend(eigenspace.basis())
+        # If we have n linearly independent eigenvectors, we can diagonalize
+        if len(basis_vectors) != n:
+            return Matrix.DiagonalizationResult(eig_mults, False)
+        # Form P from eigenvectors as columns
+        P = Matrix([list(col) for col in zip(*basis_vectors)])
+        try:
+            P_inv = P.inverse()
+        except Exception:
+            return Matrix.DiagonalizationResult(eig_mults, False)
+        # D = P^{-1} A P
+        D = P_inv * self * P
+        # Simplify all matrices
+        D.simplify()
+        P.simplify()
+        P_inv.simplify()
+        return Matrix.DiagonalizationResult(eig_mults, True, P, P_inv, D)
+
+
+def raw_gen_rand_matrix(
+    rows: int, cols: int, dist: Callable[[], any] | None = None
+) -> Matrix:
+    if dist is None:
+        dist = lambda: random.randint(-5, 5)
+    return Matrix([[dist() for _ in range(cols)] for _ in range(rows)])
+
+
+def gen_regular_matrix(N: int, dist: Callable[[], any] | None = None) -> Matrix:
+    if dist is None:
+        dist = lambda: random.randint(-5, 5)
+    while True:
+        val = Matrix([[dist() for _ in range(N)] for _ in range(N)])
+        if val.rank() == N:
+            return val
+
+
+def gen_matrix_with_rank(
+    rows: int, cols: int, rank: int | None = None, dist: Callable[[], any] | None = None
+) -> Matrix:
+    rank = rank or min(rows, cols)
+    num_full_rank_columns = min(rank, rows, cols)
+    num_free_columns = cols - num_full_rank_columns
+    while True:
+        val = Matrix(
+            [[dist() for _ in range(num_full_rank_columns)] for _ in range(rows)]
+        )
+        if val.rank() == num_full_rank_columns:
+            break
+    combination = raw_gen_rand_matrix(rows, num_free_columns, dist)
+    rem = combination * val
+    zipped_rows = list(zip(val.items, rem.items))
+    res = Matrix([row1 + row2 for row1, row2 in zipped_rows])
+    # first `num_full_rank_columns` columns are linearly independent; the rest are linearly dependent
+    # Permute the columns using a random permutation
+    from permutation import Permutation
+
+    # Create a random permutation of the columns
+    perm = Permutation.random(cols)
+
+    # Apply the permutation to the columns
+    permuted_items = []
+    for row in res.items:
+        permuted_row = [row[perm(j)] for j in range(cols)]
+        permuted_items.append(permuted_row)
+
+    return Matrix(permuted_items)
+
+
+def gen_jordan_matrix(N: int, blocks: List[Tuple[any, int]]) -> Matrix:
+    total_size = sum(size for _, size in blocks)
+    if total_size != N:
+        raise ValueError(
+            f"Sum of Jordan block sizes ({total_size}) must equal matrix size ({N})"
+        )
+
+    # Create the Jordan normal form matrix
+    jordan_form = [[0 for _ in range(N)] for _ in range(N)]
+
+    # Fill in the Jordan blocks
+    current_index = 0
+    for eigenvalue, size in blocks:
+        for i in range(size):
+            # Set the eigenvalue on the diagonal
+            jordan_form[current_index + i][current_index + i] = eigenvalue
+
+            # Set the 1's above the diagonal within each block
+            if i < size - 1:
+                jordan_form[current_index + i][current_index + i + 1] = 1
+
+        current_index += size
+
+    # Create the Jordan normal form matrix
+    J = Matrix(jordan_form)
+
+    return J
+
+
+def gen_matrix_with_jordan_blocks(
+    N: int, blocks: List[Tuple[any, int]], dist: Callable[[], any] | None = None
+) -> Matrix:
+    jordan_form = gen_jordan_matrix(N, blocks)
+    P = gen_regular_matrix(N, dist)
+    P_inv = P.inverse()
+    result = P_inv * jordan_form * P
+    return result
