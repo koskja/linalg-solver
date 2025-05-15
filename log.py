@@ -4,6 +4,7 @@ from fmt import pcformat
 class Logger:
     accum: list[str]
     level_limit: int = 0
+    _auto_print: bool = False
 
     def __init__(self, accum: list[str] = None, level_limit: int = 0):
         self.accum = accum if accum is not None else []
@@ -13,6 +14,8 @@ class Logger:
         if level > self.level_limit:
             return
         self.accum.append(message)
+        if self._auto_print:
+            print(message)
 
     def __str__(self):
         return "\n".join(self.accum)
@@ -80,7 +83,9 @@ def nest_appending_logger(logs_list: list[str]):
 
 current_logger = None
 logger_stack = []
-push_logger()
+global_logger = Logger()
+global_logger._auto_print = True
+push_logger(global_logger)
 
 
 def poorly_formatted(a, b):

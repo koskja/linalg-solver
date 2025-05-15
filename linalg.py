@@ -50,6 +50,9 @@ class Matrix:
             return self._cols
         return len(self.items[0])
 
+    def self_map(self, f: Callable[[any], any]) -> "Matrix":
+        return Matrix([[f(item) for item in row] for row in self.items])
+
     def get_row(self, i: int) -> List[any]:
         return self.items[i]
 
@@ -84,7 +87,7 @@ class Matrix:
             res,
         )
         if logs:
-            log(r"with substeps: \\")
+            log(r"s dílčími kroky: \\")
             for l in logs:
                 log(r"%s \\", l)
         return res
@@ -112,7 +115,7 @@ class Matrix:
                     intermediate_slots[i][j] = " + ".join(
                         [
                             cformat(self.items[i][k], arg_of="*")
-                            + " \\times "
+                            + r" \times "
                             + cformat(other.items[k][j], arg_of="*")
                             for k in range(self.cols)
                         ]
@@ -128,7 +131,7 @@ class Matrix:
             res,
         )
         if logs:
-            log(r"with substeps: \\")
+            log(r"s dílčími kroky: \\")
             for l in logs:
                 log(r"%s \\", l)
         return res
@@ -138,7 +141,7 @@ class Matrix:
             raise ValueError("Determinant requires a square matrix")
         n = self.rows
         if n == 0:
-            log(r"$$ \\det([]) = 1 $$ ")
+            log(r"$$ \det([]) = 1 $$ ")
             return 1
 
         perms = itertools.permutations(range(n))
@@ -208,7 +211,7 @@ class Matrix:
                 )
 
             if sum_logs:
-                log(r"with summation substeps: \\")
+                log(r"s dílčími kroky sčítání: \\")
                 for l in sum_logs:
                     log(r"%s \\", l)
         else:
@@ -303,16 +306,16 @@ class Matrix:
         with nest_appending_logger(logs):
             A_minus_lambda_I = self - lambda_identity
         log(
-            r"Compute the characteristic matrix $A - \lambda I$: $$ A - \lambda I = %s - %s = %s $$",
+            r"Výpočet charakteristické matice $A - \lambda I$: $$ A - \lambda I = %s - %s = %s $$",
             self,
             lambda_identity,
             A_minus_lambda_I,
         )
 
-        log(r"Compute the characteristic polynomial $\det(A - \lambda I)$:")
+        log(r"Výpočet charakteristického polynomu $\det(A - \lambda I)$:")
         characteristic_poly = A_minus_lambda_I.determinant(log_permutation_details=True)
         log(
-            r"The characteristic polynomial is: $$ p(\lambda) = %s $$",
+            r"Charakteristický polynom je: $$ p(\lambda) = %s $$",
             characteristic_poly,
         )
 
@@ -338,14 +341,14 @@ class Matrix:
                         r"%s^{%d}" % (cformat(factor_poly, arg_of="^"), mult)
                     )
             factored_str = r" \times ".join(factors)
-            log(r"A factored form: $$ p(\lambda) = %s $$", factored_str)
+            log(r"Rozložený tvar: $$ p(\lambda) = %s $$", factored_str)
 
         eigenvalues_log_str = ", ".join(
             [f"${cformat(root)}$ (multiplicity {mult})" for root, mult in roots.items()]
         )
         field = "R" if real_only else "C"
         log(
-            r"The eigenvalues (roots of $p(\lambda)$ in $\mathbb{%s}$) with their algebraic multiplicities are: %s",
+            r"Vlastní čísla (kořeny $p(\lambda)$ v $\mathbb{%s}$) s jejich algebraickými násobnostmi jsou: %s",
             field,
             eigenvalues_log_str,
         )
@@ -387,9 +390,7 @@ class Matrix:
                 generators.append(
                     cformat(Matrix.new_vector(self.generators.get_col(i)))
                 )
-            span = r" \text{span} \hspace{0.1em} \left\{ %s \right\} " % ", ".join(
-                generators
-            )
+            span = r" \LO \left\{ %s \right\} " % ", ".join(generators)
             return r" %s %s  " % (
                 cformat(Matrix.new_vector(self.vec)) + " + " if not all_zeros else "",
                 span,
@@ -403,7 +404,7 @@ class Matrix:
             return "NoSolution()"
 
         def cformat(self, arg_of=""):
-            return r"\text{No solution}"
+            return r"\text{Žádné řešení}"
 
     def _q_find_preimage_of(self, vec: List[any]) -> "AffineSubspace | NoSolution":
         # Convert self.items and vec to sympy matrices
@@ -472,7 +473,7 @@ class Matrix:
                             make_latex_augmented_matrix(A, bar_col=bar_col)
                         )
                         intermediate_steps.append(
-                            r"\textbf{S%s}: Swap rows $R_{%d}$ and $R_{%d}$"
+                            r"\textbf{S%s}: Výměna řádků $R_{%d}$ a $R_{%d}$"
                             % (step, pivot_i + 1, i + 1)
                         )
                         step += 1
@@ -494,7 +495,8 @@ class Matrix:
                     make_latex_augmented_matrix(A, bar_col=bar_col)
                 )
                 intermediate_steps.append(
-                    r"\textbf{N%s}: Normalize pivot row %s" % (step, pivot_i + 1)
+                    r"\textbf{N%s}: Normalizace pivotního řádku %s"
+                    % (step, pivot_i + 1)
                 )
                 step += 1
             # Eliminate entries below pivot
@@ -515,7 +517,7 @@ class Matrix:
                     make_latex_augmented_matrix(A, bar_col=bar_col)
                 )
                 intermediate_steps.append(
-                    r"\textbf{E%s}: Eliminate entries below pivot in column %s"
+                    r"\textbf{E%s}: Eliminace prvků pod pivotem ve sloupci %s"
                     % (step, pivot_j + 1)
                 )
                 step += 1
@@ -539,7 +541,7 @@ class Matrix:
                     make_latex_augmented_matrix(A, bar_col=bar_col)
                 )
                 intermediate_steps.append(
-                    r"\textbf{E%s}: Eliminate above pivot in column %s"
+                    r"\textbf{E%s}: Eliminace nad pivotem ve sloupci %s"
                     % (step, col + 1)
                 )
                 step += 1
@@ -561,12 +563,12 @@ class Matrix:
                 if log_fn:
                     row_matrix = Matrix([reduced_items[i]])
                     log_fn(
-                        r"\textbf{Inconsistent row detected (row %s):} $ %s $",
+                        r"\textbf{Nalezen nekonzistentní řádek (řádek %s):} $ %s $",
                         i + 1,
                         make_latex_augmented_matrix(row_matrix.items, bar_col=bar_col),
                     )
                     log_fn(
-                        r"\[ \boxed{\text{The system is inconsistent: no solution.}} \]"
+                        r"\[ \boxed{\text{Systém je nekonzistentní: žádné řešení.}} \]"
                     )
                 return True
         return False
@@ -587,11 +589,11 @@ class Matrix:
         free_vars = [j for j in range(n) if j not in pivot_cols]
         if log_fn:
             log_fn(
-                r"\textbf{Pivot columns:} $ %s$",
+                r"\textbf{Pivotní sloupce:} $ %s$",
                 ", ".join([f"x_{{{j+1}}}" for j in sorted(pivot_cols)]),
             )
             log_fn(
-                r"\textbf{Free variables:} $ %s$",
+                r"\textbf{Volné proměnné:} $ %s$",
                 ", ".join([f"x_{{{j+1}}}" for j in free_vars]),
             )
         # Build particular solution (all free vars = 0)
@@ -604,7 +606,7 @@ class Matrix:
                 particular[j] = rhs
         if log_fn:
             log_fn(
-                r"\textbf{Particular solution (free vars = 0):} \[ %s \]",
+                r"\textbf{Partikulární řešení (volné proměnné = 0):} \[ %s \]",
                 make_latex_vector(particular),
             )
         # Build nullspace generators (one for each free var)
@@ -620,7 +622,7 @@ class Matrix:
                     gen[j] = coeff
             if log_fn:
                 log_fn(
-                    r"\textbf{Nullspace generator for $x_{%s}$:} \[ %s \]",
+                    r"\textbf{Generátor nulového prostoru pro $x_{%s}$:} \[ %s \]",
                     free_j + 1,
                     make_latex_vector(gen),
                 )
@@ -629,7 +631,7 @@ class Matrix:
             gen_mat = Matrix([list(col) for col in zip(*generators)])
             if log_fn:
                 log_fn(
-                    r"\textbf{Generator matrix (nullspace basis):} \[ %s \]",
+                    r"\textbf{Matice generátorů (báze jádra):} \[ %s \]",
                     gen_mat.cformat(),
                 )
         else:
@@ -679,7 +681,7 @@ class Matrix:
         if last:
             out.append(last)
         if log_matrices:
-            log(r"Intermediate matrices:")
+            log(r"Mezikroky:")
             out = [r" $$ " + r" \sim ".join(chunk) + r" $$ \\" for chunk in out]
             for line in out:
                 log(r"%s", line)
@@ -750,7 +752,7 @@ class Matrix:
         if last:
             out.append(last)
         if log_matrices:
-            log(r"Intermediate matrices:")
+            log(r"Mezikroky:")
             out = [r" $$ " + r" \sim ".join(chunk) + r" $$ \\" for chunk in out]
             for line in out:
                 log(r"%s", line)
@@ -771,11 +773,11 @@ class Matrix:
                 if not is_identity:
                     break
             if not is_identity:
-                log(r"\[ \boxed{\text{The matrix is singular: no inverse.}} \]")
+                log(r"\[ \boxed{\text{Matice je singulární: neexistuje inverze.}} \]")
                 return Matrix.NoSolution()
             # Extract right block as inverse
             inverse_items = [row[n:] for row in reduced_items]
-            log(r"\textbf{Inverse matrix:} \[ %s \]", make_latex_matrix(inverse_items))
+            log(r"\textbf{Inverzní matice:} \[ %s \]", make_latex_matrix(inverse_items))
         if log_result:
             log("\n".join(logs))
         return Matrix(inverse_items)
@@ -824,11 +826,11 @@ class Matrix:
         def cformat(self, arg_of=""):
             logs = []
             with nest_appending_logger(logs):
-                log("Diagonalization: " + ("Succeeded" if self.success else "Failed"))
+                log("Diagonalizace: " + ("Úspěšná" if self.success else "Neúspěšná"))
                 log(r"\[ \begin{array}{|c|c|c|}")
                 log(r"\hline")
                 log(
-                    r"\text{Eigenvalue} & \text{Algebraic Mult.} & \text{Geometric Mult.} \\"
+                    r"\text{Vlastní číslo} & \text{Algebraická násobnost} & \text{Geometrická násobnost} \\"
                 )
                 log(r"\hline")
                 for eigenvalue, (
