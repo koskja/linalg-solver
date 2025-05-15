@@ -472,10 +472,12 @@ class Matrix:
                         intermediate_matrices.append(
                             make_latex_augmented_matrix(A, bar_col=bar_col)
                         )
-                        intermediate_steps.append(
-                            r"\textbf{S%s}: Výměna řádků $R_{%d}$ a $R_{%d}$"
-                            % (step, pivot_i + 1, i + 1)
+                        step_label = f"S{step}"
+                        description = r"Výměna řádků $R_{%d}$ a $R_{%d}$" % (
+                            pivot_i + 1,
+                            i + 1,
                         )
+                        intermediate_steps.append((step_label, description))
                         step += 1
                         swapped = True
                         break
@@ -494,10 +496,9 @@ class Matrix:
                 intermediate_matrices.append(
                     make_latex_augmented_matrix(A, bar_col=bar_col)
                 )
-                intermediate_steps.append(
-                    r"\textbf{N%s}: Normalizace pivotního řádku %s"
-                    % (step, pivot_i + 1)
-                )
+                step_label = f"N{step}"
+                description = r"Normalizace pivotního řádku %s" % (pivot_i + 1)
+                intermediate_steps.append((step_label, description))
                 step += 1
             # Eliminate entries below pivot
             first_nonzero_row = None
@@ -516,10 +517,11 @@ class Matrix:
                 intermediate_matrices.append(
                     make_latex_augmented_matrix(A, bar_col=bar_col)
                 )
-                intermediate_steps.append(
-                    r"\textbf{E%s}: Eliminace prvků pod pivotem ve sloupci %s"
-                    % (step, pivot_j + 1)
+                step_label = f"E{step}"
+                description = r"Eliminace prvků pod pivotem ve sloupci %s" % (
+                    pivot_j + 1
                 )
+                intermediate_steps.append((step_label, description))
                 step += 1
             pivots.append((pivot_i, pivot_j))
             pivot_i += 1
@@ -540,10 +542,9 @@ class Matrix:
                 intermediate_matrices.append(
                     make_latex_augmented_matrix(A, bar_col=bar_col)
                 )
-                intermediate_steps.append(
-                    r"\textbf{E%s}: Eliminace nad pivotem ve sloupci %s"
-                    % (step, col + 1)
-                )
+                step_label = f"E{step}"
+                description = r"Eliminace nad pivotem ve sloupci %s" % (col + 1)
+                intermediate_steps.append((step_label, description))
                 step += 1
         return A, pivots, intermediate_matrices, intermediate_steps
 
@@ -589,11 +590,11 @@ class Matrix:
         free_vars = [j for j in range(n) if j not in pivot_cols]
         if log_fn:
             log_fn(
-                r"\textbf{Pivotní sloupce:} $ %s$",
+                r"\textbf{Pivotní sloupce:} $ %s$ \\",
                 ", ".join([f"x_{{{j+1}}}" for j in sorted(pivot_cols)]),
             )
             log_fn(
-                r"\textbf{Volné proměnné:} $ %s$",
+                r"\textbf{Volné proměnné:} $ %s$ \\",
                 ", ".join([f"x_{{{j+1}}}" for j in free_vars]),
             )
         # Build particular solution (all free vars = 0)
@@ -606,7 +607,7 @@ class Matrix:
                 particular[j] = rhs
         if log_fn:
             log_fn(
-                r"\textbf{Partikulární řešení (volné proměnné = 0):} \[ %s \]",
+                r"\textbf{Partikulární řešení (volné proměnné = 0):} $ %s $ \\",
                 make_latex_vector(particular),
             )
         # Build nullspace generators (one for each free var)
@@ -620,23 +621,91 @@ class Matrix:
                     # The coefficient of free_j in row i
                     coeff = -reduced_items[i][free_j]
                     gen[j] = coeff
-            if log_fn:
-                log_fn(
-                    r"\textbf{Generátor nulového prostoru pro $x_{%s}$:} \[ %s \]",
-                    free_j + 1,
-                    make_latex_vector(gen),
-                )
             generators.append(gen)
         if generators:
             gen_mat = Matrix([list(col) for col in zip(*generators)])
             if log_fn:
+                header_vars_str = " & ".join([f"x_{{{fv + 1}}}" for fv in free_vars])
+
+                full_latex_matrix_with_header = make_latex_vertical_augmented_matrix(
+                    header_vars_str, gen_mat.items, gen_mat.cols
+                )
+
                 log_fn(
-                    r"\textbf{Matice generátorů (báze jádra):} \[ %s \]",
-                    gen_mat.cformat(),
+                    r"\textbf{Báze jádra (sloupce jsou vektory pro volné proměnné $x_i$):} \[ %s \]",
+                    full_latex_matrix_with_header,
                 )
         else:
             gen_mat = None
         return particular, gen_mat
+
+    def _log_row_reduction_progress(
+        self,
+        intermediate_matrices: List[str],
+        intermediate_steps: List[Tuple[str, str]],
+        num_augmented_cols: int,
+        log_matrices: bool,
+        log_steps: bool,
+    ):
+        if not log_matrices and not log_steps:
+            return
+
+        MAX_LINE_WIDTH_UNITS = 10
+        FALLBACK_MATRIX_WIDTH_ESTIMATE = 11
+        matrix_display_width_estimate = (
+            num_augmented_cols
+            if num_augmented_cols > 0
+            else FALLBACK_MATRIX_WIDTH_ESTIMATE
+        )
+
+        def do_log_steps():
+            if not (log_steps and intermediate_steps):
+                return
+            log(r"\begin{itemize}[noitemsep,topsep=0pt,parsep=0pt,partopsep=0pt]")
+            for step_label, step_desc in intermediate_steps:
+                log(r"\item \textbf{%s}: %s" % (step_label, step_desc))
+            log(r"\end{itemize}")
+
+        if not (log_matrices and intermediate_matrices):
+            do_log_steps()
+            return
+
+        log(r"Mezikroky:")
+        line_break_indices = set()
+        current_width_on_line = 0
+        num_matrices_on_line = 0
+        for idx, _ in enumerate(intermediate_matrices):
+            if (
+                num_matrices_on_line > 0
+                and current_width_on_line + matrix_display_width_estimate
+                > MAX_LINE_WIDTH_UNITS
+            ):
+                line_break_indices.add(idx - 1)
+                current_width_on_line = 0
+                num_matrices_on_line = 0
+
+            current_width_on_line += matrix_display_width_estimate
+            num_matrices_on_line += 1
+
+        log_output_parts = [r"\["]
+        for i, matrix_str in enumerate(intermediate_matrices):
+            log_output_parts.append("\n" + matrix_str + "\n")
+            if i < len(intermediate_matrices) - 1:  # If not the last matrix
+                if log_steps and 0 <= i < len(intermediate_steps):
+                    step_label = intermediate_steps[i][0].strip()
+                    separator = r" \StepSim{%s} " % step_label
+                else:
+                    separator = r" \sim "
+                log_output_parts.append(separator)
+                if i in line_break_indices:
+                    log_output_parts.append(r" \]" + "\n" + r"\[ ")
+
+        log_output_parts.append(r" \]")
+        log("".join(log_output_parts))
+
+        if log_steps and intermediate_steps:
+            log(r"Provedené kroky:")
+            do_log_steps()
 
     def find_preimage_of(
         self,
@@ -653,7 +722,6 @@ class Matrix:
         # If no logging, quietly use sympy
         if not log_matrices and not log_steps and not log_result:
             return self._q_find_preimage_of(vec)
-        from fmt import make_latex_augmented_matrix
         from copy import deepcopy
 
         # Build augmented matrix
@@ -667,27 +735,15 @@ class Matrix:
         ).row_reduce(bar_col=bar_col)
         m, n_aug = len(reduced_items), len(reduced_items[0])
         n = n_aug - 1  # number of variables
-        # Prepare intermediate matrix logs
-        total_cols = 0
-        last = []
-        out = []
-        for matrix in intermediate_matrices:
-            total_cols += n_aug
-            last.append(matrix)
-            if total_cols > 10:
-                out.append(last)
-                last = [""]
-                total_cols = 0
-        if last:
-            out.append(last)
-        if log_matrices:
-            log(r"Mezikroky:")
-            out = [r" $$ " + r" \sim ".join(chunk) + r" $$ \\" for chunk in out]
-            for line in out:
-                log(r"%s", line)
-        if log_steps:
-            for step_desc in intermediate_steps:
-                log(r"%s ", step_desc)
+
+        self._log_row_reduction_progress(
+            intermediate_matrices,
+            intermediate_steps,
+            n_aug,
+            log_matrices,
+            log_steps,
+        )
+
         logs = []
         with nest_appending_logger(logs):
             # Check for inconsistency
@@ -724,8 +780,7 @@ class Matrix:
                 return Matrix([list(inv.row(i)) for i in range(inv.rows)])
             except Exception:
                 return Matrix.NoSolution()
-        # Logging path: use row reduction
-        from fmt import make_latex_augmented_matrix, make_latex_matrix
+        from fmt import make_latex_matrix
         from copy import deepcopy
 
         # Build augmented matrix [A | I]
@@ -738,27 +793,15 @@ class Matrix:
             aug_items
         ).row_reduce(bar_col=bar_col + 1)
         n_aug = len(reduced_items[0])
-        # Prepare intermediate matrix logs
-        total_cols = 0
-        last = []
-        out = []
-        for matrix in intermediate_matrices:
-            total_cols += n_aug
-            last.append(matrix)
-            if total_cols > 10:
-                out.append(last)
-                last = [""]
-                total_cols = 0
-        if last:
-            out.append(last)
-        if log_matrices:
-            log(r"Mezikroky:")
-            out = [r" $$ " + r" \sim ".join(chunk) + r" $$ \\" for chunk in out]
-            for line in out:
-                log(r"%s", line)
-        if log_steps:
-            for step_desc in intermediate_steps:
-                log(r"%s \\ ", step_desc)
+
+        self._log_row_reduction_progress(
+            intermediate_matrices,
+            intermediate_steps,
+            n_aug,
+            log_matrices,
+            log_steps,
+        )
+
         logs = []
         with nest_appending_logger(logs):
             # Check if left block is identity

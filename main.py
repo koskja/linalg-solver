@@ -19,8 +19,8 @@ def random_slr():
     do_negatives = randbool()
     lower_bound = -upper_bound if do_negatives else 0
     r = lambda: sympy.Rational(random.randint(lower_bound, upper_bound), 1)
-    n = random.randint(2, 4)
-    log_level = random.randint(0, 3)
+    n = random.randint(2, 5)
+    log_level = random.randint(0, 4)
     for i in range(1):
         R = Matrix([[r() for _ in range(n)] for _ in range(n)])
         inv = R.inverse(
@@ -29,6 +29,25 @@ def random_slr():
             log_result=log_level >= 3,
         )
         log(r"\[ %s \]", inv)
+        log(r"\newpage")
+        # Generate a random vector and find its preimage
+        m = random.randint(2, n)  # Choose a number of rows between 2 and n
+        A = Matrix([[r() for _ in range(n)] for _ in range(m)])
+        b = [r() for _ in range(m)]
+
+        log(r"\textbf{Random matrix $A$:} \[ %s \]", A)
+        log(r"\textbf{Random vector $b$:} \[ %s \]", Matrix.new_vector(b).cformat())
+        log(r"\textbf{Finding preimage of $b$ under $A$:}")
+
+        preimage = A.find_preimage_of(
+            b,
+            log_matrices=log_level >= 1,
+            log_steps=log_level >= 2,
+            log_result=log_level >= 3,
+        )
+
+        log(r"\textbf{Preimage:} \[ %s \]", preimage)
+        log(r"\newpage")
 
 
 def random_jordan(diagonal_only: bool = False, true_random: bool = False):
@@ -77,33 +96,7 @@ def analyze_eigenvalues(matrix: Matrix):
 
 def main():
     with nest_logger() as lg:
-        # Example: Full-rank random matrix
-        A = gen_regular_matrix(3, lambda: random.randint(-2, 2))
-        log(r"Random full-rank matrix: \[ A = %s \]", A)
-        # Example: Random matrix with specified rank
-        B = gen_matrix_with_rank(4, 5, 2, lambda: random.randint(-2, 2))
-        log(r"Random 4x5 matrix of rank 2: \[ B = %s \]", B)
-        # Example: Diagonalizable matrix with given eigenvalues
-        eigs = [(2, 2), (3, 1)]
-        C = gen_diagonalizable_matrix(3, eigs, lambda: random.randint(-2, 2))
-        log(
-            r"Random diagonalizable matrix with eigenvalues 2 (mult 2), 3 (mult 1): \[ C = %s \]",
-            C,
-        )
-        # Example: Jordan normal form matrix
-        D = gen_jordan_matrix(4, [(1, 2), (2, 2)])
-        log(r"Jordan normal form matrix: \[ D = %s \]", D)
-        # Example: Random matrix similar to a Jordan form
-        E = gen_matrix_with_jordan_blocks(
-            4, [(0, 2), (1, 2)], lambda: random.randint(-2, 2)
-        )
-        log(r"Random matrix similar to a Jordan form: \[ E = %s \]", E)
-        # Example: Arbitrary random matrix
-        F = raw_gen_rand_matrix(3, 4, lambda: random.randint(-2, 2))
-        log(r"Arbitrary random 3x4 matrix: \[ F = %s \]", F)
-        # Diagonalization example
-        d = C.diagonalize()
-        log(r"Diagonalization of C: %s", d)
+        random_slr()
     logs = str(lg)
     print(logs)
 
