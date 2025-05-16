@@ -2,11 +2,10 @@ from copy import deepcopy
 from typing import Callable, Dict, Iterator, List, Tuple, Any
 import itertools
 import sympy
-import random
-from fmt import *
-from log import log, nest_appending_logger
-from permutation import Permutation
-from polynomial import Polynomial
+from .fmt import *
+from .log import log, nest_appending_logger
+from .permutation import Permutation
+from .polynomial import Polynomial
 
 
 class Matrix:
@@ -451,10 +450,6 @@ class Matrix:
         Perform Gaussian elimination (row reduction) on an augmented matrix.
         Returns the reduced matrix, pivot information, and logs.
         """
-        # bar_col is the first column after the bar (the augmented column)
-        from copy import deepcopy
-        from fmt import make_latex_augmented_matrix
-
         A = deepcopy(self.items)
         m, n = len(A), len(A[0])
         pivot_i, pivot_j = 0, 0
@@ -553,7 +548,6 @@ class Matrix:
         Check for inconsistency in the reduced augmented matrix.
         Returns True if inconsistent, otherwise False. Optionally logs details.
         """
-        from fmt import make_latex_augmented_matrix
 
         m = len(reduced_items)
         for i in range(m):
@@ -579,7 +573,6 @@ class Matrix:
         Given a reduced augmented matrix and pivots, extract the particular solution and nullspace generators.
         Optionally logs details.
         """
-        from fmt import make_latex_vector
 
         m = len(reduced_items)
         pivots_row = [-1] * m  # pivot column for each row, -1 if none
@@ -722,7 +715,6 @@ class Matrix:
         # If no logging, quietly use sympy
         if not log_matrices and not log_steps and not log_result:
             return self._q_find_preimage_of(vec)
-        from copy import deepcopy
 
         # Build augmented matrix
         A = deepcopy(self)
@@ -780,8 +772,6 @@ class Matrix:
                 return Matrix([list(inv.row(i)) for i in range(inv.rows)])
             except Exception:
                 return Matrix.NoSolution()
-        from fmt import make_latex_matrix
-        from copy import deepcopy
 
         # Build augmented matrix [A | I]
         A = deepcopy(self)
@@ -846,7 +836,6 @@ class Matrix:
         if self.rows != self.cols:
             raise ValueError("Matrix must be square to find eigenspace.")
         n = self.rows
-        from copy import deepcopy
 
         A = deepcopy(self)
         for i in range(n):
@@ -905,7 +894,6 @@ class Matrix:
         """
         Attempts to call sympy.simplify on all items in the matrix, in-place.
         """
-        import sympy
 
         for i in range(self.rows):
             for j in range(self.cols):

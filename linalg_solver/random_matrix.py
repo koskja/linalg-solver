@@ -1,8 +1,8 @@
 from copy import deepcopy
 from typing import List, Tuple, Callable, Any
 import random
-from linalg import Matrix
-from permutation import Permutation
+from .linalg import Matrix
+from .permutation import Permutation
 
 
 class RandomMatrixBuilder:

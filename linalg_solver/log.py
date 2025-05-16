@@ -1,4 +1,4 @@
-from fmt import pcformat
+from .fmt import pcformat
 
 
 class Logger:

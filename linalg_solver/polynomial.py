@@ -1,5 +1,5 @@
 import sympy
-from fmt import pcformat, cformat
+from .fmt import cformat
 from typing import Dict, Tuple, List, Any
 
 
