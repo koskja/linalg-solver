@@ -87,7 +87,9 @@ def kernel_example():
     log(r"\section{Kernel}")
     A = _rationalize_matrix(gen_matrix_with_rank(3, 4, rank=2))
     log(r"Vstupní matice $A$: $%s$ \\", A)
-    ker = A.kernel()
+    ker = A.find_preimage_of(
+        [0] * 3, log_matrices=True, log_steps=True, log_result=True
+    )
     log(r"\textbf{Báze jádra:}    $%s$", ker)
 
 
@@ -97,13 +99,8 @@ def kernel_example():
 
 
 def main():
-    # Ensure reproducibility
-    random.seed(42)
+    random.seed(2025)
 
-    # Clear any previous logs
-    global_logger.accum.clear()
-
-    # Run all examples
     determinant_example()
     inverse_example()
     linear_system_example()
@@ -111,7 +108,6 @@ def main():
     diagonalization_example()
     kernel_example()
 
-    # Write LaTeX output
     with open("output.tex", "w", encoding="utf-8") as f:
         f.write("\n".join(global_logger.accum))
 

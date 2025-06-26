@@ -1,4 +1,4 @@
-from copy import deepcopy
+from .log import ignore_log
 from typing import List, Tuple, Callable, Any
 import random
 from .linalg import Matrix
@@ -126,7 +126,7 @@ class RandomMatrixBuilder:
             B = Matrix([[dist() for _ in range(cols)] for _ in range(rank)])
             if B.rank() == rank:
                 break
-        return A * B
+        return ignore_log(lambda: A * B)
 
     def build_diagonalizable(self) -> Matrix:
         # Diagonal matrix with specified eigenvalues, randomized by similarity if requested
@@ -139,7 +139,7 @@ class RandomMatrixBuilder:
             return D
         P = gen_unimodular_matrix(N)
         P_inv = P.inverse()
-        return P_inv * D * P
+        return ignore_log(lambda: P_inv * D * P)
 
     def build_jordan(self) -> Matrix:
         N = self.num_rows
@@ -164,7 +164,7 @@ class RandomMatrixBuilder:
         N = self.num_rows
         P = gen_unimodular_matrix(N)
         P_inv = P.inverse()
-        return P_inv * J * P
+        return ignore_log(lambda: P_inv * J * P)
 
 
 def raw_gen_rand_matrix(
@@ -243,6 +243,7 @@ def gen_unimodular_matrix(N: int, dist: Callable[[], Any] | None = None) -> Matr
     Returns:
         A unimodular matrix of size N×N
     """
+
     random_sign = lambda: random.choice([-1, 1])
     if dist is None:
         dist = lambda: random.randint(-1, 1)
@@ -261,7 +262,6 @@ def gen_unimodular_matrix(N: int, dist: Callable[[], Any] | None = None) -> Matr
         for j in range(i):
             L[i][j] = dist()  # Random values below diagonal
 
-    # Multiply L * U to get unimodular matrix
     U_matrix = Matrix(U)
     L_matrix = Matrix(L)
-    return L_matrix * U_matrix
+    return ignore_log(lambda: L_matrix * U_matrix)
