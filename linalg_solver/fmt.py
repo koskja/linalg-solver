@@ -56,7 +56,7 @@ def pretty_print_arithmetic(a: any, op: str, b: any) -> str:
         if b < 0:
             b = -b
             a = -a
-        return pcformat(r"%s \times %s", a, b)
+        return pcformat(r"%s \cdot %s", a, b)
 
 
 def make_latex_matrix(items: List[List[Any]]) -> str:

@@ -112,7 +112,7 @@ class Matrix:
                     intermediate_slots[i][j] = " + ".join(
                         [
                             cformat(self.items[i][k], arg_of="*")
-                            + r" \times "
+                            + r" \cdot"
                             + cformat(other.items[k][j], arg_of="*")
                             for k in range(self.cols)
                         ]
@@ -121,7 +121,7 @@ class Matrix:
                         [self.items[i][k] * other.items[k][j] for k in range(self.cols)]
                     )
         log(
-            r"$$ %s \times %s = %s = %s $$",
+            r"$$ %s \cdot %s = %s = %s $$",
             self,
             other,
             make_latex_matrix(intermediate_slots),
@@ -171,7 +171,7 @@ class Matrix:
                 )
             ):
                 sign_str = "+" if sign == 1 else "-"
-                prod_str = r"\times ".join(log_prod_term_elements)
+                prod_str = r"\cdot ".join(log_prod_term_elements)
                 term_contribution_str = pcformat(r"%s(%s)", sign_str, prod_str)
 
                 if log_permutation_details:
@@ -337,7 +337,7 @@ class Matrix:
                     factors.append(
                         r"%s^{%d}" % (cformat(factor_poly, arg_of="^"), mult)
                     )
-            factored_str = r" \times ".join(factors)
+            factored_str = r" \cdot ".join(factors)
             log(r"Rozložený tvar: $$ p(\lambda) = %s $$", factored_str)
 
         eigenvalues_log_str = ", ".join(
