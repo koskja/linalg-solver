@@ -18,6 +18,8 @@ def cformat(val, arg_of=None):
         return val.cformat(arg_of)
     if isinstance(val, str):
         return val
+    if isinstance(val, sympy.polys.domains.modularinteger.ModularInteger):
+        return str(int(val))
     if hasattr(val, "as_latex") and callable(val.as_latex):
         return val.as_latex()
     try:

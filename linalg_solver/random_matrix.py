@@ -2,7 +2,6 @@ from copy import deepcopy
 from typing import List, Tuple, Callable, Any
 import random
 from .linalg import Matrix
-from .permutation import Permutation
 
 
 class RandomMatrixBuilder:
@@ -138,7 +137,7 @@ class RandomMatrixBuilder:
         D = Matrix.diagonal(diag)
         if not self.do_randomize_from_diagonal_form:
             return D
-        P = RandomMatrixBuilder.new().with_size(N, N).build_full_rank()
+        P = gen_unimodular_matrix(N)
         P_inv = P.inverse()
         return P_inv * D * P
 
@@ -163,7 +162,7 @@ class RandomMatrixBuilder:
         # Randomly similar to a given Jordan form
         J = self.build_jordan()
         N = self.num_rows
-        P = RandomMatrixBuilder.new().with_size(N, N).build_full_rank()
+        P = gen_unimodular_matrix(N)
         P_inv = P.inverse()
         return P_inv * J * P
 
@@ -229,3 +228,40 @@ def gen_diagonalizable_matrix(
         .with_dist(dist)
         .build_diagonalizable()
     )
+
+
+def gen_unimodular_matrix(N: int, dist: Callable[[], Any] | None = None) -> Matrix:
+    """
+    Generate a unimodular matrix (determinant = ±1) by multiplying
+    an upper triangular matrix and a lower triangular matrix,
+    both with ones on the diagonal.
+
+    Args:
+        N: Size of the square matrix
+        dist: Distribution function for non-diagonal entries (default: random integers from -3 to 3)
+
+    Returns:
+        A unimodular matrix of size N×N
+    """
+    random_sign = lambda: random.choice([-1, 1])
+    if dist is None:
+        dist = lambda: random.randint(-1, 1)
+
+    # Generate upper triangular matrix with ones on diagonal
+    U = [[0 for _ in range(N)] for _ in range(N)]
+    for i in range(N):
+        U[i][i] = random_sign()  # Ones on diagonal
+        for j in range(i + 1, N):
+            U[i][j] = dist()  # Random values above diagonal
+
+    # Generate lower triangular matrix with ones on diagonal
+    L = [[0 for _ in range(N)] for _ in range(N)]
+    for i in range(N):
+        L[i][i] = random_sign()  # Ones on diagonal
+        for j in range(i):
+            L[i][j] = dist()  # Random values below diagonal
+
+    # Multiply L * U to get unimodular matrix
+    U_matrix = Matrix(U)
+    L_matrix = Matrix(L)
+    return L_matrix * U_matrix

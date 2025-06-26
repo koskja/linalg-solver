@@ -81,6 +81,12 @@ def nest_appending_logger(logs_list: list[str]):
     return LoggerGuard(append_logs=logs_list)
 
 
+def capture_logs(f) -> str:
+    with nest_logger() as lg:
+        f()
+    return str(lg)
+
+
 current_logger = None
 logger_stack = []
 global_logger = Logger()

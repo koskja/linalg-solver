@@ -19,7 +19,7 @@ from .fmt import (
     make_latex_vertical_augmented_matrix,
 )
 
-from .log import log, nest_logger, nest_appending_logger, ignore_log
+from .log import log, nest_logger, nest_appending_logger, ignore_log, capture_logs
 
 __all__ = [
     "Matrix",
@@ -41,4 +41,5 @@ __all__ = [
     "nest_logger",
     "nest_appending_logger",
     "ignore_log",
+    "capture_logs",
 ]

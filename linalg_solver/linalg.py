@@ -16,7 +16,6 @@ class Matrix:
             raise ValueError("Matrix cannot be empty")
         if not all(isinstance(row, list) for row in items):
             raise ValueError("Matrix items must be a list of lists")
-        row_len = None
         if items:
             if not items[0]:
                 if any(row for row in items):
@@ -29,8 +28,7 @@ class Matrix:
         else:
             row_len = 0
 
-        self._cols = row_len if row_len is not None else (len(items[0]) if items else 0)
-
+        self._cols = row_len
         self.items = items
 
     def __str__(self) -> str:
@@ -552,8 +550,8 @@ class Matrix:
         m = len(reduced_items)
         for i in range(m):
             if (
-                all(abs(reduced_items[i][j]) == 0 for j in range(n))
-                and abs(reduced_items[i][bar_col]) != 0
+                all(reduced_items[i][j] == 0 for j in range(n))
+                and reduced_items[i][bar_col] != 0
             ):
                 if log_fn:
                     row_matrix = Matrix([reduced_items[i]])
