@@ -37,8 +37,23 @@ def _rationalize_vector(vec):
 
 def determinant_example():
     log(r"\section{Determinant}")
-    A = _rationalize_matrix(gen_regular_matrix(3))
-    log(r"Vstupní matice $A$: $%s$", A)
+    A = gen_regular_matrix(5)
+    minor_1 = [random.randint(0, 4), random.randint(0, 4)]
+    minor_2 = [random.randint(0, 3), random.randint(0, 3)]
+    if minor_2[0] >= minor_1[0]:
+        minor_2[0] += 1
+    if minor_2[1] >= minor_1[1]:
+        minor_2[1] += 1
+    A.set_item(minor_1[0], minor_1[1], random.randint(1, 5))
+    A.set_item(minor_2[0], minor_2[1], random.randint(1, 5))
+    for i in range(5):
+        for j in range(5):
+            if i == minor_1[0] and j != minor_1[1]:
+                A.items[i][j] = 0
+            if i != minor_2[0] and j == minor_2[1]:
+                A.items[i][j] = 0
+    A = _rationalize_matrix(A)
+    log(r"Vstupní matice $A$: $%s$ \\", A)
     det_val = A.determinant(log_permutation_details=True)
     log(r"\textbf{Determinant:} $%s$", det_val)
 
@@ -99,7 +114,7 @@ def kernel_example():
 
 
 def main():
-    random.seed(2025)
+    random.seed(2026)
 
     determinant_example()
     inverse_example()

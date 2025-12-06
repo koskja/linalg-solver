@@ -100,6 +100,23 @@ def multi_add(items: List[Any]) -> Any:
     return sum(items)
 
 
+def prod(items: List[Any]) -> Any:
+    acc = 1
+    for item in items:
+        acc *= item
+    return acc
+
+
+def multi_mul(items: List[Any]) -> Any:
+    if len(items) == 0:
+        raise ValueError("At least one item is required")
+    if len(items) == 1:
+        return items[0]
+    if hasattr(items[0], "multi_mul") and callable(items[0].multi_mul):
+        return items[0].multi_mul(*items[1:])
+    return prod(items)
+
+
 def scalar_mul(item: Any, scalar: Any) -> Any:
     if hasattr(item, "scalar_mul") and callable(item.scalar_mul):
         return item.scalar_mul(scalar)

@@ -115,8 +115,11 @@ class Matrix:
                             + r" \cdot"
                             + cformat(other.items[k][j], arg_of="*")
                             for k in range(self.cols)
+                            if self.items[i][k] != 0 and other.items[k][j] != 0
                         ]
                     )
+                    if intermediate_slots[i][j] == "":
+                        intermediate_slots[i][j] = "0"
                     res.items[i][j] = multi_add(
                         [self.items[i][k] * other.items[k][j] for k in range(self.cols)]
                     )
@@ -133,7 +136,91 @@ class Matrix:
                 log(r"%s \\", l)
         return res
 
+    def is_upper_triangular(self) -> bool:
+        for i in range(self.rows):
+            for j in range(i + 1, self.cols):
+                if self.items[i][j] != 0:
+                    return False
+        return True
+
+    def is_lower_triangular(self) -> bool:
+        for i in range(self.rows):
+            for j in range(i):
+                if self.items[i][j] != 0:
+                    return False
+        return True
+
+    def minor(self, i: int, j: int) -> "Matrix":
+        return Matrix(
+            [
+                [item for k, item in enumerate(row) if k != j]
+                for k, row in enumerate(self.items)
+                if k != i
+            ]
+        )
+
     def determinant(self, log_permutation_details: bool = False) -> Any:
+        n = self.rows
+        if n == 0:
+            log(r"$$ \det([]) = 1 $$ ")
+            return 1
+        if n == 1:
+            return self.items[0][0]
+        triangular_type = ""
+        if self.is_upper_triangular():
+            triangular_type = "horní"
+        elif self.is_lower_triangular():
+            triangular_type = "dolní"
+        if triangular_type:
+            log(
+                r"$%s$ je %s trojúhelníková matice, determinant je roven součinu diagonálních prvků: ",
+                self.cformat(),
+                triangular_type,
+            )
+            det = multi_mul([self.items[i][i] for i in range(n)])
+            mul_str = r"\cdot ".join(
+                [cformat(self.items[i][i], arg_of="*") for i in range(n)]
+            )
+            log(r"$$ \det(%s) = %s = %s $$", self, mul_str, det)
+            return multi_mul([self.items[i][i] for i in range(n)])
+        for i in range(n):
+            nonzero_indices_in_row = [j for j in range(n) if self.items[i][j] != 0]
+            nonzero_indices_in_column = [j for j in range(n) if self.items[j][i] != 0]
+            if len(nonzero_indices_in_row) == 0:
+                log(r"%s má nulový %s. řádek, determinant je 0", self.cformat(), i + 1)
+                return 0
+            if len(nonzero_indices_in_column) == 0:
+                log(
+                    r"%s má nulový %s. sloupec, determinant je 0", self.cformat(), i + 1
+                )
+                return 0
+            expansion_i, expansion_j = None, None
+            if len(nonzero_indices_in_row) == 1:
+                expansion_i = i
+                expansion_j = nonzero_indices_in_row[0]
+                log(r"Provedeme rozvoj determinantu podle %s. řádku", i + 1)
+            elif len(nonzero_indices_in_column) == 1:
+                expansion_i = nonzero_indices_in_column[0]
+                expansion_j = i
+                log(r"Provedeme rozvoj determinantu podle %s. sloupce", i + 1)
+            else:
+                continue
+            minor = self.minor(expansion_i, expansion_j)
+            minor_det = minor.determinant(log_permutation_details)
+            sign = (-1) ** (expansion_i + expansion_j)
+            val = sign * self.items[expansion_i][expansion_j]
+            det = val * minor_det
+            log(
+                r"$$ \det(%s) = %s \cdot \det(%s) = %s $$",
+                self,
+                cformat(val, arg_of="*"),
+                minor,
+                det,
+            )
+            return det
+        return self.direct_determinant(log_permutation_details)
+
+    def direct_determinant(self, log_permutation_details: bool = False) -> Any:
         if self.rows != self.cols:
             raise ValueError("Determinant requires a square matrix")
         n = self.rows
@@ -932,3 +1019,7 @@ class Matrix:
         P.simplify()
         P_inv.simplify()
         return Matrix.DiagonalizationResult(eig_mults, True, P, P_inv, D)
+
+    def set_item(self, i: int, j: int, value: any):
+        self.items[i][j] = value
+        return self
