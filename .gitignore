@@ -14,3 +14,5 @@ uv.lock
 res.*
 output.*
 !res.tex
+reseni.py
+generated_output.tex
