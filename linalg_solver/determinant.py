@@ -113,10 +113,17 @@ def execute_process(
     if cols is None:
         cols = list(range(n))
 
-    # Verify the matrix is at least as sparse as the process expects
-    check_sparsity(matrix, process.expected_nonzeros, rows, cols)
-
     process_type = process.process_type
+
+    # Verify the matrix is at least as sparse as the process expects.
+    #
+    # NOTE:
+    # For transformation processes like AddRow/SwapRows, the Rust-side
+    # `expected_nonzeros` corresponds to the *result* of the transformation
+    # (after eliminating/swapping), not the input. We therefore validate
+    # sparsity after applying the transformation in their respective executors.
+    if process_type not in ("AddRow", "SwapRows"):
+        check_sparsity(matrix, process.expected_nonzeros, rows, cols)
 
     if process_type == "Direct":
         return _execute_direct(matrix, rows, cols, do_log, sign)
@@ -647,6 +654,7 @@ def _execute_add_row(
             log(r"$$ %s $$", make_latex_matrix(new_submatrix_items))
 
         # Compute sub-determinant (which is multiplied by src_pivot)
+        check_sparsity(modified_matrix, result_process.expected_nonzeros, rows, cols)
         sub_det = execute_process(
             modified_matrix, result_process, rows, cols, do_log, sign
         )
@@ -694,6 +702,7 @@ def _execute_add_row(
             log(r"Po úpravě:")
             log(r"$$ %s $$", make_latex_matrix(new_submatrix_items))
 
+        check_sparsity(modified_matrix, result_process.expected_nonzeros, rows, cols)
         return execute_process(
             modified_matrix, result_process, rows, cols, do_log, sign
         )
@@ -729,6 +738,7 @@ def _execute_swap_rows(
     # Negate sign due to row swap
     new_sign = -sign
 
+    check_sparsity(matrix, result_process.expected_nonzeros, swapped_rows, cols)
     return execute_process(matrix, result_process, swapped_rows, cols, do_log, new_sign)
 
 

@@ -506,17 +506,9 @@ fn try_add_row_operations<F>(
 
 /// Remap a process from canonical indices back to original indices
 fn remap_process(process: &Process, row_perm: &[usize], col_perm: &[usize]) -> Process {
-    // Build inverse permutations
-    let mut inv_row_perm = vec![0; row_perm.len()];
-    let mut inv_col_perm = vec![0; col_perm.len()];
-    for (new_idx, &old_idx) in row_perm.iter().enumerate() {
-        inv_row_perm[old_idx] = new_idx;
-    }
-    for (new_idx, &old_idx) in col_perm.iter().enumerate() {
-        inv_col_perm[old_idx] = new_idx;
-    }
-
-    remap_process_with_inv(process, &inv_row_perm, &inv_col_perm)
+    // Process contains canonical indices. row_perm maps canonical -> original.
+    // So we can use row_perm/col_perm directly to map back.
+    remap_process_with_inv(process, row_perm, col_perm)
 }
 
 fn remap_nonzeros(
@@ -584,10 +576,7 @@ fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize
             col_perm,
             expected_nonzeros,
         } => Process::BlockTriangular {
-            blocks: blocks
-                .iter()
-                .map(|p| Box::new(remap_process_with_inv(p, inv_row, inv_col)))
-                .collect(),
+            blocks: blocks.iter().map(|p| p.clone()).collect(),
             row_perm: row_perm
                 .iter()
                 .map(|&r| inv_row.get(r).copied().unwrap_or(r))
@@ -701,10 +690,7 @@ fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize
             col_perm: block_col_perm,
             expected_nonzeros,
         } => Process::BlockTriangular {
-            blocks: blocks
-                .iter()
-                .map(|p| Box::new(canonicalize_process(p, row_perm, col_perm)))
-                .collect(),
+            blocks: blocks.iter().map(|p| p.clone()).collect(),
             row_perm: block_row_perm
                 .iter()
                 .map(|&r| row_perm.iter().position(|&pr| pr == r).unwrap_or(r))

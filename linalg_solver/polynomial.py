@@ -11,6 +11,18 @@ class Polynomial:
         self.powers = {k: v for k, v in powers.items() if v != 0}
         self.var = var
 
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, (int, float)) and other == 0:
+            return not self.powers
+        if isinstance(other, Polynomial):
+            return self.var == other.var and self.powers == other.powers
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        # Sort items to ensure deterministic hash
+        items = tuple(sorted(self.powers.items()))
+        return hash((self.var, items))
+
     def cformat(self, arg_of: str = None) -> str:
         res = ""
         for exp, coef in sorted(self.powers.items(), key=lambda x: -x[0]):
