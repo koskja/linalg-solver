@@ -22,6 +22,48 @@ def matrix_to_sparsity_pattern(matrix: "Matrix") -> List[List[bool]]:
     return [[item != 0 for item in row] for row in matrix.items]
 
 
+def check_sparsity(
+    matrix: "Matrix",
+    expected_nonzeros: List[Tuple[int, int]],
+    rows: List[int],
+    cols: List[int],
+) -> None:
+    """
+    Verify that the matrix is at least as sparse as expected.
+
+    The process expects certain positions to be non-zero. The actual matrix
+    may have additional zeros (be sparser), but must not have non-zeros
+    where the process expects zeros.
+
+    Args:
+        matrix: The matrix to check.
+        expected_nonzeros: List of (row, col) tuples that are expected non-zero.
+        rows: Row indices mapping local to actual rows.
+        cols: Column indices mapping local to actual columns.
+
+    Raises:
+        ValueError: If the matrix has a non-zero where the process expects zero.
+    """
+    expected_set = set(expected_nonzeros)
+
+    n_rows = len(rows)
+    n_cols = len(cols)
+
+    for local_r in range(n_rows):
+        for local_c in range(n_cols):
+            actual_r = rows[local_r]
+            actual_c = cols[local_c]
+            value = matrix.items[actual_r][actual_c]
+
+            if value != 0 and (local_r, local_c) not in expected_set:
+                raise ValueError(
+                    r"Sparsity mismatch: matrix has non-zero at position (%s, %s) "
+                    r"(local (%s, %s)) but the process expects zero there. "
+                    r"Expected non-zeros: %s"
+                    % (actual_r, actual_c, local_r, local_c, sorted(expected_nonzeros))
+                )
+
+
 def find_optimal_process(
     matrix: "Matrix",
 ) -> Tuple["linalg_helper.PyCost", "linalg_helper.PyProcess"]:
@@ -61,12 +103,18 @@ def execute_process(
 
     Returns:
         The computed determinant value.
+
+    Raises:
+        ValueError: If the matrix has non-zeros where the process expects zeros.
     """
     n = matrix.rows
     if rows is None:
         rows = list(range(n))
     if cols is None:
         cols = list(range(n))
+
+    # Verify the matrix is at least as sparse as the process expects
+    check_sparsity(matrix, process.expected_nonzeros, rows, cols)
 
     process_type = process.process_type
 

@@ -52,6 +52,9 @@ def determinant_example():
                 A.items[i][j] = 0
             if i != minor_2[0] and j == minor_2[1]:
                 A.items[i][j] = 0
+    A.set_item(
+        minor_1[0], (minor_1[1] + random.randint(1, 5)) % 5, random.randint(1, 5)
+    )
     A = _rationalize_matrix(A)
     log(r"Vstupní matice $A$: $%s$ \\", A)
     det_val = A.determinant(log_permutation_details=True)

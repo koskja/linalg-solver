@@ -116,6 +116,9 @@ pub struct PyProcess {
     pub row_perm: Option<Vec<usize>>,
     #[pyo3(get)]
     pub col_perm: Option<Vec<usize>>,
+    /// Expected non-zero positions (row, col) in the matrix for this process step
+    #[pyo3(get)]
+    pub expected_nonzeros: Vec<(usize, usize)>,
     // These fields use custom getters due to recursive structure
     pub minors: Option<Vec<(usize, PyProcess)>>,
     pub blocks: Option<Vec<PyProcess>>,
@@ -125,7 +128,10 @@ pub struct PyProcess {
 impl From<&Process> for PyProcess {
     fn from(process: &Process) -> Self {
         match process {
-            Process::Direct { size } => PyProcess {
+            Process::Direct {
+                size,
+                expected_nonzeros,
+            } => PyProcess {
                 process_type: "Direct".to_string(),
                 size: Some(*size),
                 row: None,
@@ -137,11 +143,16 @@ impl From<&Process> for PyProcess {
                 pivot_col: None,
                 row_perm: None,
                 col_perm: None,
+                expected_nonzeros: expected_nonzeros.clone(),
                 minors: None,
                 blocks: None,
                 result: None,
             },
-            Process::RowExpansion { row, minors } => PyProcess {
+            Process::RowExpansion {
+                row,
+                minors,
+                expected_nonzeros,
+            } => PyProcess {
                 process_type: "RowExpansion".to_string(),
                 size: None,
                 row: Some(*row),
@@ -153,6 +164,7 @@ impl From<&Process> for PyProcess {
                 pivot_col: None,
                 row_perm: None,
                 col_perm: None,
+                expected_nonzeros: expected_nonzeros.clone(),
                 minors: Some(
                     minors
                         .iter()
@@ -162,7 +174,11 @@ impl From<&Process> for PyProcess {
                 blocks: None,
                 result: None,
             },
-            Process::ColExpansion { col, minors } => PyProcess {
+            Process::ColExpansion {
+                col,
+                minors,
+                expected_nonzeros,
+            } => PyProcess {
                 process_type: "ColExpansion".to_string(),
                 size: None,
                 row: None,
@@ -174,6 +190,7 @@ impl From<&Process> for PyProcess {
                 pivot_col: None,
                 row_perm: None,
                 col_perm: None,
+                expected_nonzeros: expected_nonzeros.clone(),
                 minors: Some(
                     minors
                         .iter()
@@ -187,6 +204,7 @@ impl From<&Process> for PyProcess {
                 blocks,
                 row_perm,
                 col_perm,
+                expected_nonzeros,
             } => PyProcess {
                 process_type: "BlockTriangular".to_string(),
                 size: None,
@@ -199,6 +217,7 @@ impl From<&Process> for PyProcess {
                 pivot_col: None,
                 row_perm: Some(row_perm.clone()),
                 col_perm: Some(col_perm.clone()),
+                expected_nonzeros: expected_nonzeros.clone(),
                 minors: None,
                 blocks: Some(blocks.iter().map(|p| PyProcess::from(p.as_ref())).collect()),
                 result: None,
@@ -208,6 +227,7 @@ impl From<&Process> for PyProcess {
                 dst,
                 pivot_col,
                 result,
+                expected_nonzeros,
             } => PyProcess {
                 process_type: "AddRow".to_string(),
                 size: None,
@@ -220,11 +240,17 @@ impl From<&Process> for PyProcess {
                 pivot_col: Some(*pivot_col),
                 row_perm: None,
                 col_perm: None,
+                expected_nonzeros: expected_nonzeros.clone(),
                 minors: None,
                 blocks: None,
                 result: Some(Box::new(PyProcess::from(result.as_ref()))),
             },
-            Process::SwapRows { r1, r2, result } => PyProcess {
+            Process::SwapRows {
+                r1,
+                r2,
+                result,
+                expected_nonzeros,
+            } => PyProcess {
                 process_type: "SwapRows".to_string(),
                 size: None,
                 row: None,
@@ -236,6 +262,7 @@ impl From<&Process> for PyProcess {
                 pivot_col: None,
                 row_perm: None,
                 col_perm: None,
+                expected_nonzeros: expected_nonzeros.clone(),
                 minors: None,
                 blocks: None,
                 result: Some(Box::new(PyProcess::from(result.as_ref()))),

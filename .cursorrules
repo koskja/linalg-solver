@@ -7,6 +7,7 @@ You are working on a linear algebra solver Python project that generates LaTeX o
 - **Language**: Python 3.12+
 - **Dependencies**: SymPy for symbolic mathematics
 - **Output**: LaTeX formatted mathematical expressions and matrices
+- **venv**: Always use the `.venv` venv.
 
 ## Core Requirements
 
