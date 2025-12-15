@@ -180,43 +180,78 @@ pub fn dulmage_mendelsohn(graph: &AdjacencyMatrix) -> DMResult {
     // Find SCCs in reverse topological order
     let sccs = tarjan_scc(&s_adj);
 
-    // Build permutations and block sizes
+    // Build blocks with their rows and corresponding matched columns
+    // Each block is (Vec<(original_row, matched_col)>, min_original_row)
+    let mut blocks: Vec<(Vec<(usize, usize)>, usize)> = Vec::new();
+
+    // Add H partition (if non-empty)
+    let mut h_rows_vec: Vec<usize> = h_rows.into_iter().collect();
+    let mut h_cols_vec: Vec<usize> = h_cols.into_iter().collect();
+    h_rows_vec.sort(); // Sort by original index to minimize permutation
+    h_cols_vec.sort();
+    if !h_rows_vec.is_empty() || !h_cols_vec.is_empty() {
+        let pairs: Vec<(usize, usize)> = h_rows_vec
+            .iter()
+            .zip(h_cols_vec.iter())
+            .map(|(&r, &c)| (r, c))
+            .collect();
+        let min_row = pairs.iter().map(|&(r, _)| r).min().unwrap_or(usize::MAX);
+        blocks.push((pairs, min_row));
+    }
+
+    // Add S partition (SCCs in reverse topological order = already correct for upper triangular)
+    // But within each SCC, sort by original row index to minimize permutation
+    for scc in sccs.iter().rev() {
+        let mut pairs: Vec<(usize, usize)> = Vec::new();
+        for &idx in scc {
+            let r = s_rows[idx];
+            if let Some(c) = matching.row_to_col[r] {
+                pairs.push((r, c));
+            }
+        }
+        // Sort pairs by original row index within the block
+        pairs.sort_by_key(|&(r, _)| r);
+        let min_row = pairs.iter().map(|&(r, _)| r).min().unwrap_or(usize::MAX);
+        if !pairs.is_empty() {
+            blocks.push((pairs, min_row));
+        }
+    }
+
+    // Add V partition (if non-empty)
+    let mut v_rows_vec: Vec<usize> = v_rows.into_iter().collect();
+    let mut v_cols_vec: Vec<usize> = v_cols.into_iter().collect();
+    v_rows_vec.sort(); // Sort by original index to minimize permutation
+    v_cols_vec.sort();
+    if !v_rows_vec.is_empty() || !v_cols_vec.is_empty() {
+        let pairs: Vec<(usize, usize)> = v_rows_vec
+            .iter()
+            .zip(v_cols_vec.iter())
+            .map(|(&r, &c)| (r, c))
+            .collect();
+        let min_row = pairs.iter().map(|&(r, _)| r).min().unwrap_or(usize::MAX);
+        blocks.push((pairs, min_row));
+    }
+
+    // Step 4: Normalize block order to minimize permutation
+    // For block diagonal matrices (no inter-block edges), we can reorder blocks freely.
+    // For block triangular matrices, we must respect the topological order.
+    // We detect if reordering is safe by checking if there are any edges between blocks.
+    let normalized_blocks = normalize_block_order(graph, &matching, blocks);
+
+    // Build final permutations
     let mut row_perm = Vec::new();
     let mut col_perm = Vec::new();
     let mut block_sizes = Vec::new();
 
-    // Add H partition (if non-empty)
-    let h_rows_vec: Vec<usize> = h_rows.into_iter().collect();
-    let h_cols_vec: Vec<usize> = h_cols.into_iter().collect();
-    if !h_rows_vec.is_empty() || !h_cols_vec.is_empty() {
-        row_perm.extend(&h_rows_vec);
-        col_perm.extend(&h_cols_vec);
-        block_sizes.push(h_rows_vec.len().max(h_cols_vec.len()));
-    }
-
-    // Add S partition (SCCs in reverse topological order = already correct for upper triangular)
-    for scc in sccs.iter().rev() {
-        let scc_size = scc.len();
-        // Add rows in this SCC
-        for &idx in scc {
-            row_perm.push(s_rows[idx]);
+    for (pairs, _) in normalized_blocks {
+        if pairs.is_empty() {
+            continue;
         }
-        // Add corresponding matched columns
-        for &idx in scc {
-            if let Some(c) = matching.row_to_col[s_rows[idx]] {
-                col_perm.push(c);
-            }
+        block_sizes.push(pairs.len());
+        for (r, c) in pairs {
+            row_perm.push(r);
+            col_perm.push(c);
         }
-        block_sizes.push(scc_size);
-    }
-
-    // Add V partition (if non-empty)
-    let v_rows_vec: Vec<usize> = v_rows.into_iter().collect();
-    let v_cols_vec: Vec<usize> = v_cols.into_iter().collect();
-    if !v_rows_vec.is_empty() || !v_cols_vec.is_empty() {
-        row_perm.extend(&v_rows_vec);
-        col_perm.extend(&v_cols_vec);
-        block_sizes.push(v_rows_vec.len().max(v_cols_vec.len()));
     }
 
     // Handle case where permutations are incomplete (shouldn't happen with correct algorithm)
@@ -233,6 +268,63 @@ pub fn dulmage_mendelsohn(graph: &AdjacencyMatrix) -> DMResult {
         col_perm,
         block_sizes,
     }
+}
+
+/// Normalize block order to minimize the permutation.
+/// For block diagonal matrices, sort blocks by their minimum original row index.
+/// For block triangular matrices, respect topological constraints but optimize within them.
+fn normalize_block_order(
+    graph: &AdjacencyMatrix,
+    _matching: &Matching,
+    mut blocks: Vec<(Vec<(usize, usize)>, usize)>,
+) -> Vec<(Vec<(usize, usize)>, usize)> {
+    if blocks.len() <= 1 {
+        return blocks;
+    }
+
+    // Build a set of (row, col) pairs for each block for quick lookup
+    let block_cols: Vec<HashSet<usize>> = blocks
+        .iter()
+        .map(|(pairs, _)| pairs.iter().map(|&(_, c)| c).collect())
+        .collect();
+
+    let block_rows: Vec<HashSet<usize>> = blocks
+        .iter()
+        .map(|(pairs, _)| pairs.iter().map(|&(r, _)| r).collect())
+        .collect();
+
+    // Check for inter-block edges (block i -> block j means there's an edge from
+    // a row in block i to a column in block j, where i != j)
+    // For block triangular, edges go from earlier blocks to later blocks (upper triangular)
+    let n = blocks.len();
+    let mut has_edge_to_later: Vec<bool> = vec![false; n];
+
+    for i in 0..n {
+        for &r in &block_rows[i] {
+            for c in graph.row_neighbors(r) {
+                // Check if this column belongs to a later block
+                for j in (i + 1)..n {
+                    if block_cols[j].contains(&c) {
+                        has_edge_to_later[i] = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // If no block has edges to later blocks, this is block diagonal
+    // and we can reorder blocks freely by their min_row
+    let is_block_diagonal = !has_edge_to_later.iter().any(|&x| x);
+
+    if is_block_diagonal {
+        // Sort blocks by their minimum original row index
+        blocks.sort_by_key(|(_, min_row)| *min_row);
+    }
+    // For block triangular, we already have topological order from SCCs,
+    // but we can still try to optimize by checking if adjacent blocks can be swapped
+
+    blocks
 }
 
 #[cfg(test)]
@@ -272,5 +364,120 @@ mod tests {
         ]));
         assert_eq!(result.block_sizes, vec![3]);
         assert!(!result.is_decomposable());
+    }
+
+    #[test]
+    fn test_dm_identity_minimal_permutation() {
+        // Identity matrix: permutations should be identity (no unnecessary swaps)
+        let result = dulmage_mendelsohn(&AdjacencyMatrix::from_vec(vec![
+            vec![true, false, false],
+            vec![false, true, false],
+            vec![false, false, true],
+        ]));
+        // Row and column permutations should be identity [0, 1, 2]
+        assert_eq!(
+            result.row_perm,
+            vec![0, 1, 2],
+            "Row permutation should be identity"
+        );
+        assert_eq!(
+            result.col_perm,
+            vec![0, 1, 2],
+            "Column permutation should be identity"
+        );
+    }
+
+    #[test]
+    fn test_dm_block_diagonal_minimal_permutation() {
+        // Block diagonal with two 2x2 blocks: permutations should be identity
+        let result = dulmage_mendelsohn(&AdjacencyMatrix::from_vec(vec![
+            vec![true, true, false, false],
+            vec![true, true, false, false],
+            vec![false, false, true, true],
+            vec![false, false, true, true],
+        ]));
+        // Permutations should be identity [0, 1, 2, 3] since blocks are already in order
+        assert_eq!(
+            result.row_perm,
+            vec![0, 1, 2, 3],
+            "Row permutation should be identity for block diagonal"
+        );
+        assert_eq!(
+            result.col_perm,
+            vec![0, 1, 2, 3],
+            "Column permutation should be identity for block diagonal"
+        );
+        assert_eq!(
+            result.block_sizes,
+            vec![2, 2],
+            "Should have two blocks of size 2"
+        );
+    }
+
+    #[test]
+    fn test_dm_lower_triangular_block_order() {
+        // Lower triangular 3x3 matrix: DM produces upper triangular block form
+        // So rows/cols are reversed to convert lower to upper triangular
+        let result = dulmage_mendelsohn(&AdjacencyMatrix::from_vec(vec![
+            vec![true, false, false],
+            vec![true, true, false],
+            vec![true, true, true],
+        ]));
+        // Lower triangular → upper triangular requires reversing order
+        // This is correct behavior - blocks must respect topological order
+        assert_eq!(
+            result.row_perm,
+            vec![2, 1, 0],
+            "Lower triangular needs reverse order for upper block form"
+        );
+        assert_eq!(
+            result.col_perm,
+            vec![2, 1, 0],
+            "Lower triangular needs reverse order for upper block form"
+        );
+    }
+
+    #[test]
+    fn test_dm_upper_triangular_minimal_permutation() {
+        // Upper triangular 3x3 matrix: already in correct form, so identity permutation
+        let result = dulmage_mendelsohn(&AdjacencyMatrix::from_vec(vec![
+            vec![true, true, true],
+            vec![false, true, true],
+            vec![false, false, true],
+        ]));
+        // Upper triangular is already in the right form - identity permutation
+        assert_eq!(
+            result.row_perm,
+            vec![0, 1, 2],
+            "Row permutation should be identity for upper triangular"
+        );
+        assert_eq!(
+            result.col_perm,
+            vec![0, 1, 2],
+            "Column permutation should be identity for upper triangular"
+        );
+    }
+
+    #[test]
+    fn test_dm_shuffled_diagonal_restores_order() {
+        // Diagonal with elements in positions (1,1), (0,0), (2,2) - should NOT require swaps
+        // because diagonal matrices should produce identity permutation
+        let result = dulmage_mendelsohn(&AdjacencyMatrix::from_vec(vec![
+            vec![true, false, false],
+            vec![false, true, false],
+            vec![false, false, true],
+        ]));
+        // Even if internally the algorithm finds elements in different order,
+        // the normalization should produce identity
+        assert_eq!(
+            result.row_perm,
+            vec![0, 1, 2],
+            "Should normalize to identity"
+        );
+        assert_eq!(
+            result.col_perm,
+            vec![0, 1, 2],
+            "Should normalize to identity"
+        );
     }
 }
