@@ -16,3 +16,4 @@ output.*
 !res.tex
 reseni.py
 generated_output.tex
+linalg-helper/target/

@@ -1,0 +1,14 @@
+[package]
+name = "linalg-helper"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "linalg_helper"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.27", features = ["extension-module"] }
+
+[dev-dependencies]
+rand = "0.8"

@@ -159,13 +159,33 @@ class Matrix:
             ]
         )
 
-    def determinant(self, log_permutation_details: bool = False) -> Any:
+    def determinant(
+        self, log_permutation_details: bool = False, use_optimal: bool = True
+    ) -> Any:
+        """
+        Compute the determinant of the matrix.
+
+        Args:
+            log_permutation_details: Whether to log detailed permutation info (legacy mode only).
+            use_optimal: If True, use Rust-optimized strategy. If False, use legacy Python implementation.
+
+        Returns:
+            The determinant value.
+        """
         n = self.rows
         if n == 0:
             log(r"$$ \det([]) = 1 $$ ")
             return 1
         if n == 1:
             return self.items[0][0]
+
+        # Use Rust-optimized determinant computation
+        if use_optimal:
+            from .determinant import determinant as rust_determinant
+
+            return rust_determinant(self, do_log=True)
+
+        # Legacy implementation follows
         triangular_type = ""
         if self.is_upper_triangular():
             triangular_type = "horní"
@@ -206,7 +226,7 @@ class Matrix:
             else:
                 continue
             minor = self.minor(expansion_i, expansion_j)
-            minor_det = minor.determinant(log_permutation_details)
+            minor_det = minor.determinant(log_permutation_details, use_optimal=False)
             sign = (-1) ** (expansion_i + expansion_j)
             val = sign * self.items[expansion_i][expansion_j]
             det = val * minor_det

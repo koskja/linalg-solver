@@ -1,3 +1,7 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
 [project]
 name = "linalg-solver"
 version = "0.1.0"
@@ -7,4 +11,11 @@ requires-python = ">=3.12"
 dependencies = [
     "sympy>=1.12.1",
 ]
-scripts = { linalg-solver = "main:main" }
+
+[project.scripts]
+linalg-solver = "main:main"
+
+[tool.maturin]
+manifest-path = "linalg-helper/Cargo.toml"
+python-source = "."
+features = ["pyo3/extension-module"]
