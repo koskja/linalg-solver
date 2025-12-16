@@ -109,17 +109,38 @@ class Matrix:
         for i in range(self.rows):
             for j in range(other.cols):
                 with nest_appending_logger(logs):
-                    intermediate_slots[i][j] = " + ".join(
-                        [
-                            cformat(self.items[i][k], arg_of="*")
-                            + r" \cdot"
-                            + cformat(other.items[k][j], arg_of="*")
-                            for k in range(self.cols)
-                            if self.items[i][k] != 0 and other.items[k][j] != 0
-                        ]
-                    )
-                    if intermediate_slots[i][j] == "":
+                    terms = []
+                    for k in range(self.cols):
+                        if self.items[i][k] != 0 and other.items[k][j] != 0:
+                            s = self.items[i][k]
+                            o = other.items[k][j]
+                            term_val = s * o
+                            term_str = (
+                                cformat(s, arg_of="*")
+                                + r" \cdot "
+                                + cformat(o, arg_of="*")
+                            )
+                            terms.append((term_str, term_val))
+
+                    if not terms:
                         intermediate_slots[i][j] = "0"
+                    else:
+                        res_str = terms[0][0]
+                        for t_str, t_val in terms[1:]:
+                            # Simple heuristic: if the string starts with -, use " - ", else " + "
+                            # But we construct t_str from factors.
+                            # Let's check the value sign if possible, or just look at the string.
+                            # Since cformat handles signs, we might see "-..."
+                            if t_str.strip().startswith("-"):
+                                # e.g. "- 5 \cdot 3" or "-5"
+                                # We want " - 5 \cdot 3" instead of " + -5 \cdot 3"
+                                # Strip the leading "-" and append with " - "
+                                stripped = t_str.strip()[1:].strip()
+                                res_str += " - " + stripped
+                            else:
+                                res_str += " + " + t_str
+                        intermediate_slots[i][j] = res_str
+
                     res.items[i][j] = multi_add(
                         [self.items[i][k] * other.items[k][j] for k in range(self.cols)]
                     )
@@ -785,9 +806,10 @@ class Matrix:
             current_width_on_line += matrix_display_width_estimate
             num_matrices_on_line += 1
 
-        log_output_parts = [r"\["]
+        log_output_parts = [r"\begin{align*}" + "\n"]
         for i, matrix_str in enumerate(intermediate_matrices):
-            log_output_parts.append("\n" + matrix_str + "\n")
+            prefix = "&" if i == 0 or (i - 1) in line_break_indices else ""
+            log_output_parts.append(prefix + matrix_str)
             if i < len(intermediate_matrices) - 1:  # If not the last matrix
                 if log_steps and 0 <= i < len(intermediate_steps):
                     step_label = intermediate_steps[i][0].strip()
@@ -796,9 +818,11 @@ class Matrix:
                     separator = r" \sim "
                 log_output_parts.append(separator)
                 if i in line_break_indices:
-                    log_output_parts.append(r" \]" + "\n" + r"\[ ")
+                    log_output_parts.append(r" \\")
 
-        log_output_parts.append(r" \]")
+                log_output_parts.append("\n")
+
+        log_output_parts.append("\n" + r"\end{align*}")
         log("".join(log_output_parts))
 
         if log_steps and intermediate_steps:

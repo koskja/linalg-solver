@@ -37,7 +37,10 @@ class Polynomial:
             coef_str = "" if coef == 1 and exp != 0 else cformat(coef)
             var_str = "" if exp == 0 else self.var
             pow_str = "" if exp <= 1 else r"^{%s}" % exp
-            res += r"%s{%s}%s" % (coef_str, var_str, pow_str)
+            if not var_str:
+                res += r"%s" % coef_str
+            else:
+                res += r"%s{%s}%s" % (coef_str, var_str, pow_str)
         if arg_of is None or arg_of == "+":
             return res
         if len(self.powers) <= 1 and not (res.startswith("-") and arg_of == "*"):

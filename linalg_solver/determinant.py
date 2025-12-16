@@ -780,7 +780,8 @@ def determinant(matrix: "Matrix", do_log: bool = True) -> Any:
     # Execute the process
     result = execute_process(matrix, process, do_log=do_log)
 
-    if do_log:
-        log(r"$$ \boxed{\det = %s} $$", cformat(result))
+    # execute_process already logs the result in a readable way
+    # if do_log:
+    #     log(r"$$ \boxed{\det = %s} $$", cformat(result))
 
     return result
