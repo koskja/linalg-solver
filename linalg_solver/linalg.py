@@ -531,46 +531,6 @@ class Matrix:
         def cformat(self, arg_of=""):
             return r"\text{Žádné řešení}"
 
-    def _q_find_preimage_of(self, vec: List[any]) -> "AffineSubspace | NoSolution":
-        # Convert self.items and vec to sympy matrices
-        A = sympy.Matrix(self.items)
-        b = sympy.Matrix(vec)
-        # Try to solve the system
-        sol = sympy.linsolve((A, b))
-        if not sol:
-            return Matrix.NoSolution()
-        # linsolve returns a FiniteSet of tuples (possibly with parameters)
-        sol = list(sol)
-        if not sol:
-            return Matrix.NoSolution()
-        # Take the first solution tuple
-        s = sol[0]
-        # If the solution is fully numeric, return as a single point
-        if all(not hasattr(x, "free_symbols") or len(x.free_symbols) == 0 for x in s):
-            return Matrix.AffineSubspace(list(s), Matrix.zero(len(s), 0))
-        # Otherwise, extract particular solution and generators
-        # Find all parameters (free symbols)
-        params = set()
-        for x in s:
-            if hasattr(x, "free_symbols"):
-                params |= x.free_symbols
-        params = sorted(params, key=lambda x: str(x))
-        # Build the particular solution (set all params to 0)
-        subs = {p: 0 for p in params}
-        particular = [x.subs(subs) for x in s]
-        # Build generators: for each param, set that param to 1, others to 0
-        generators = []
-        for i, p in enumerate(params):
-            subs = {q: 0 for q in params}
-            subs[p] = 1
-            gen = [x.subs(subs) - x.subs({q: 0 for q in params}) for x in s]
-            generators.append(gen)
-        if generators:
-            gen_mat = Matrix([list(col) for col in zip(*generators)])
-        else:
-            gen_mat = Matrix.zero(len(s), 0)
-        return Matrix.AffineSubspace(particular, gen_mat)
-
     def row_reduce(self, bar_col: int = None):
         """
         Perform Gaussian elimination (row reduction) on an augmented matrix.
@@ -669,166 +629,6 @@ class Matrix:
                 step += 1
         return A, pivots, intermediate_matrices, intermediate_steps
 
-    def _check_inconsistency(self, reduced_items, n, bar_col, log_fn=None):
-        """
-        Check for inconsistency in the reduced augmented matrix.
-        Returns True if inconsistent, otherwise False. Optionally logs details.
-        """
-
-        m = len(reduced_items)
-        for i in range(m):
-            if (
-                all(reduced_items[i][j] == 0 for j in range(n))
-                and reduced_items[i][bar_col] != 0
-            ):
-                if log_fn:
-                    row_matrix = Matrix([reduced_items[i]])
-                    log_fn(
-                        r"\textbf{Nalezen nekonzistentní řádek (řádek %s):} $ %s $",
-                        i + 1,
-                        make_latex_augmented_matrix(row_matrix.items, bar_col=bar_col),
-                    )
-                    log_fn(
-                        r"\[ \boxed{\text{Systém je nekonzistentní: žádné řešení.}} \]"
-                    )
-                return True
-        return False
-
-    def _extract_affine_subspace(self, reduced_items, pivots, n, bar_col, log_fn=None):
-        """
-        Given a reduced augmented matrix and pivots, extract the particular solution and nullspace generators.
-        Optionally logs details.
-        """
-
-        m = len(reduced_items)
-        pivots_row = [-1] * m  # pivot column for each row, -1 if none
-        pivot_cols = set()
-        for i, (row, col) in enumerate(pivots):
-            pivots_row[row] = col
-            pivot_cols.add(col)
-        free_vars = [j for j in range(n) if j not in pivot_cols]
-        if log_fn:
-            log_fn(
-                r"\textbf{Pivotní sloupce:} $ %s$ \\",
-                ", ".join([f"x_{{{j+1}}}" for j in sorted(pivot_cols)]),
-            )
-            log_fn(
-                r"\textbf{Volné proměnné:} $ %s$ \\",
-                ", ".join([f"x_{{{j+1}}}" for j in free_vars]),
-            )
-        # Build particular solution (all free vars = 0)
-        particular = [0] * n
-        for i in range(m):
-            if pivots_row[i] != -1:
-                j = pivots_row[i]
-                rhs = reduced_items[i][bar_col]
-                # Subtract free var contributions (all zero for particular)
-                particular[j] = rhs
-        if log_fn:
-            log_fn(
-                r"\textbf{Partikulární řešení (volné proměnné = 0):} $ %s $ \\",
-                make_latex_vector(particular),
-            )
-        # Build nullspace generators (one for each free var)
-        generators = []
-        for idx, free_j in enumerate(free_vars):
-            gen = [0] * n
-            gen[free_j] = 1
-            for i in range(m):
-                if pivots_row[i] != -1:
-                    j = pivots_row[i]
-                    # The coefficient of free_j in row i
-                    coeff = -reduced_items[i][free_j]
-                    gen[j] = coeff
-            generators.append(gen)
-        if generators:
-            gen_mat = Matrix([list(col) for col in zip(*generators)])
-            if log_fn:
-                header_vars_str = " & ".join([f"x_{{{fv + 1}}}" for fv in free_vars])
-
-                full_latex_matrix_with_header = make_latex_vertical_augmented_matrix(
-                    header_vars_str, gen_mat.items, gen_mat.cols
-                )
-
-                log_fn(
-                    r"\textbf{Báze jádra (sloupce jsou vektory pro volné proměnné $x_i$):} \[ %s \]",
-                    full_latex_matrix_with_header,
-                )
-        else:
-            gen_mat = None
-        return particular, gen_mat
-
-    def _log_row_reduction_progress(
-        self,
-        intermediate_matrices: List[str],
-        intermediate_steps: List[Tuple[str, str]],
-        num_augmented_cols: int,
-        log_matrices: bool,
-        log_steps: bool,
-    ):
-        if not log_matrices and not log_steps:
-            return
-
-        MAX_LINE_WIDTH_UNITS = 10
-        FALLBACK_MATRIX_WIDTH_ESTIMATE = 11
-        matrix_display_width_estimate = (
-            num_augmented_cols
-            if num_augmented_cols > 0
-            else FALLBACK_MATRIX_WIDTH_ESTIMATE
-        )
-
-        def do_log_steps():
-            if not (log_steps and intermediate_steps):
-                return
-            log(r"\begin{itemize}[noitemsep,topsep=0pt,parsep=0pt,partopsep=0pt]")
-            for step_label, step_desc in intermediate_steps:
-                log(r"\item \textbf{%s}: %s" % (step_label, step_desc))
-            log(r"\end{itemize}")
-
-        if not (log_matrices and intermediate_matrices):
-            do_log_steps()
-            return
-
-        log(r"Mezikroky:")
-        line_break_indices = set()
-        current_width_on_line = 0
-        num_matrices_on_line = 0
-        for idx, _ in enumerate(intermediate_matrices):
-            if (
-                num_matrices_on_line > 0
-                and current_width_on_line + matrix_display_width_estimate
-                > MAX_LINE_WIDTH_UNITS
-            ):
-                line_break_indices.add(idx - 1)
-                current_width_on_line = 0
-                num_matrices_on_line = 0
-
-            current_width_on_line += matrix_display_width_estimate
-            num_matrices_on_line += 1
-
-        log_output_parts = [r"\begin{align*}" + "\n"]
-        for i, matrix_str in enumerate(intermediate_matrices):
-            prefix = "&" if i == 0 or (i - 1) in line_break_indices else ""
-            log_output_parts.append(prefix + matrix_str)
-            if i < len(intermediate_matrices) - 1:  # If not the last matrix
-                if log_steps and 0 <= i < len(intermediate_steps):
-                    step_label = intermediate_steps[i][0].strip()
-                    separator = r" \StepSim{%s} " % step_label
-                else:
-                    separator = r" \sim "
-                log_output_parts.append(separator)
-                if i in line_break_indices:
-                    log_output_parts.append(r" \\")
-
-                log_output_parts.append("\n")
-
-        log_output_parts.append("\n" + r"\end{align*}")
-        log("".join(log_output_parts))
-
-        if log_steps and intermediate_steps:
-            log(r"Provedené kroky:")
-            do_log_steps()
-
     def find_preimage_of(
         self,
         vec: List[any],
@@ -843,7 +643,7 @@ class Matrix:
             raise ValueError("Matrix dimensions must match")
         # If no logging, quietly use sympy
         if not log_matrices and not log_steps and not log_result:
-            return self._q_find_preimage_of(vec)
+            return _q_find_preimage_of(self, vec)
 
         # Build augmented matrix
         A = deepcopy(self)
@@ -857,7 +657,7 @@ class Matrix:
         m, n_aug = len(reduced_items), len(reduced_items[0])
         n = n_aug - 1  # number of variables
 
-        self._log_row_reduction_progress(
+        _log_row_reduction_progress(
             intermediate_matrices,
             intermediate_steps,
             n_aug,
@@ -868,13 +668,11 @@ class Matrix:
         logs = []
         with nest_appending_logger(logs):
             # Check for inconsistency
-            inconsistent = self._check_inconsistency(
-                reduced_items, n, bar_col, log_fn=log
-            )
+            inconsistent = _check_inconsistency(reduced_items, n, bar_col, log_fn=log)
             if inconsistent:
                 return Matrix.NoSolution()
             # Extract affine subspace
-            particular, gen_mat = self._extract_affine_subspace(
+            particular, gen_mat = _extract_affine_subspace(
                 reduced_items, pivots, n, bar_col, log_fn=log
             )
         if log_result:
@@ -913,7 +711,7 @@ class Matrix:
         ).row_reduce(bar_col=bar_col + 1)
         n_aug = len(reduced_items[0])
 
-        self._log_row_reduction_progress(
+        _log_row_reduction_progress(
             intermediate_matrices,
             intermediate_steps,
             n_aug,
@@ -1067,3 +865,204 @@ class Matrix:
     def set_item(self, i: int, j: int, value: any):
         self.items[i][j] = value
         return self
+
+
+def _q_find_preimage_of(
+    matrix: "Matrix", vec: List[any]
+) -> "Matrix.AffineSubspace | Matrix.NoSolution":
+    # Convert matrix.items and vec to sympy matrices
+    A = sympy.Matrix(matrix.items)
+    b = sympy.Matrix(vec)
+    # Try to solve the system
+    sol = sympy.linsolve((A, b))
+    if not sol:
+        return Matrix.NoSolution()
+    # linsolve returns a FiniteSet of tuples (possibly with parameters)
+    sol = list(sol)
+    if not sol:
+        return Matrix.NoSolution()
+    # Take the first solution tuple
+    s = sol[0]
+    # If the solution is fully numeric, return as a single point
+    if all(not hasattr(x, "free_symbols") or len(x.free_symbols) == 0 for x in s):
+        return Matrix.AffineSubspace(list(s), Matrix.zero(len(s), 0))
+    # Otherwise, extract particular solution and generators
+    # Find all parameters (free symbols)
+    params = set()
+    for x in s:
+        if hasattr(x, "free_symbols"):
+            params |= x.free_symbols
+    params = sorted(params, key=lambda x: str(x))
+    # Build the particular solution (set all params to 0)
+    subs = {p: 0 for p in params}
+    particular = [x.subs(subs) for x in s]
+    # Build generators: for each param, set that param to 1, others to 0
+    generators = []
+    for i, p in enumerate(params):
+        subs = {q: 0 for q in params}
+        subs[p] = 1
+        gen = [x.subs(subs) - x.subs({q: 0 for q in params}) for x in s]
+        generators.append(gen)
+    if generators:
+        gen_mat = Matrix([list(col) for col in zip(*generators)])
+    else:
+        gen_mat = Matrix.zero(len(s), 0)
+    return Matrix.AffineSubspace(particular, gen_mat)
+
+
+def _check_inconsistency(reduced_items, n, bar_col, log_fn=None):
+    """
+    Check for inconsistency in the reduced augmented matrix.
+    Returns True if inconsistent, otherwise False. Optionally logs details.
+    """
+
+    m = len(reduced_items)
+    for i in range(m):
+        if (
+            all(reduced_items[i][j] == 0 for j in range(n))
+            and reduced_items[i][bar_col] != 0
+        ):
+            if log_fn:
+                row_matrix = Matrix([reduced_items[i]])
+                log_fn(
+                    r"\textbf{Nalezen nekonzistentní řádek (řádek %s):} $ %s $",
+                    i + 1,
+                    make_latex_augmented_matrix(row_matrix.items, bar_col=bar_col),
+                )
+                log_fn(r"\[ \boxed{\text{Systém je nekonzistentní: žádné řešení.}} \]")
+            return True
+    return False
+
+
+def _extract_affine_subspace(reduced_items, pivots, n, bar_col, log_fn=None):
+    """
+    Given a reduced augmented matrix and pivots, extract the particular solution and nullspace generators.
+    Optionally logs details.
+    """
+
+    m = len(reduced_items)
+    pivots_row = [-1] * m  # pivot column for each row, -1 if none
+    pivot_cols = set()
+    for i, (row, col) in enumerate(pivots):
+        pivots_row[row] = col
+        pivot_cols.add(col)
+    free_vars = [j for j in range(n) if j not in pivot_cols]
+    if log_fn:
+        log_fn(
+            r"\textbf{Pivotní sloupce:} $ %s$ \\",
+            ", ".join([f"x_{{{j+1}}}" for j in sorted(pivot_cols)]),
+        )
+        log_fn(
+            r"\textbf{Volné proměnné:} $ %s$ \\",
+            ", ".join([f"x_{{{j+1}}}" for j in free_vars]),
+        )
+    # Build particular solution (all free vars = 0)
+    particular = [0] * n
+    for i in range(m):
+        if pivots_row[i] != -1:
+            j = pivots_row[i]
+            rhs = reduced_items[i][bar_col]
+            # Subtract free var contributions (all zero for particular)
+            particular[j] = rhs
+    if log_fn:
+        log_fn(
+            r"\textbf{Partikulární řešení (volné proměnné = 0):} $ %s $ \\",
+            make_latex_vector(particular),
+        )
+    # Build nullspace generators (one for each free var)
+    generators = []
+    for idx, free_j in enumerate(free_vars):
+        gen = [0] * n
+        gen[free_j] = 1
+        for i in range(m):
+            if pivots_row[i] != -1:
+                j = pivots_row[i]
+                # The coefficient of free_j in row i
+                coeff = -reduced_items[i][free_j]
+                gen[j] = coeff
+        generators.append(gen)
+    if generators:
+        gen_mat = Matrix([list(col) for col in zip(*generators)])
+        if log_fn:
+            header_vars_str = " & ".join([f"x_{{{fv + 1}}}" for fv in free_vars])
+
+            full_latex_matrix_with_header = make_latex_vertical_augmented_matrix(
+                header_vars_str, gen_mat.items, gen_mat.cols
+            )
+
+            log_fn(
+                r"\textbf{Báze jádra (sloupce jsou vektory pro volné proměnné $x_i$):} \[ %s \]",
+                full_latex_matrix_with_header,
+            )
+    else:
+        gen_mat = None
+    return particular, gen_mat
+
+
+def _log_row_reduction_progress(
+    intermediate_matrices: List[str],
+    intermediate_steps: List[Tuple[str, str]],
+    num_augmented_cols: int,
+    log_matrices: bool,
+    log_steps: bool,
+):
+    if not log_matrices and not log_steps:
+        return
+
+    MAX_LINE_WIDTH_UNITS = 10
+    FALLBACK_MATRIX_WIDTH_ESTIMATE = 11
+    matrix_display_width_estimate = (
+        num_augmented_cols if num_augmented_cols > 0 else FALLBACK_MATRIX_WIDTH_ESTIMATE
+    )
+
+    def do_log_steps():
+        if not (log_steps and intermediate_steps):
+            return
+        log(r"\begin{itemize}[noitemsep,topsep=0pt,parsep=0pt,partopsep=0pt]")
+        for step_label, step_desc in intermediate_steps:
+            log(r"\item \textbf{%s}: %s" % (step_label, step_desc))
+        log(r"\end{itemize}")
+
+    if not (log_matrices and intermediate_matrices):
+        do_log_steps()
+        return
+
+    log(r"Mezikroky:")
+    line_break_indices = set()
+    current_width_on_line = 0
+    num_matrices_on_line = 0
+    for idx, _ in enumerate(intermediate_matrices):
+        if (
+            num_matrices_on_line > 0
+            and current_width_on_line + matrix_display_width_estimate
+            > MAX_LINE_WIDTH_UNITS
+        ):
+            line_break_indices.add(idx - 1)
+            current_width_on_line = 0
+            num_matrices_on_line = 0
+
+        current_width_on_line += matrix_display_width_estimate
+        num_matrices_on_line += 1
+
+    log_output_parts = [r"\begin{align*}" + "\n"]
+    for i, matrix_str in enumerate(intermediate_matrices):
+        prefix = "&" if i == 0 or (i - 1) in line_break_indices else ""
+        log_output_parts.append(prefix + matrix_str)
+        if i < len(intermediate_matrices) - 1:  # If not the last matrix
+            if log_steps and 0 <= i < len(intermediate_steps):
+                step_label = intermediate_steps[i][0].strip()
+                separator = r" \StepSim{%s} " % step_label
+            else:
+                separator = r" \sim "
+            log_output_parts.append(separator)
+            if i in line_break_indices:
+                log_output_parts.append(r" \\")
+
+            log_output_parts.append("\n")
+
+    log_output_parts.append("\n" + r"\end{align*}")
+    log("".join(log_output_parts))
+
+    if log_steps and intermediate_steps:
+        log(r"Provedené kroky:")
+        do_log_steps()
