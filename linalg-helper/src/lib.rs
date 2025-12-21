@@ -17,7 +17,7 @@ mod tests;
 
 pub use adjacency::{AdjacencyMatrix, Matching};
 pub use canonical::{CanonicalForm, are_permutation_equivalent, canonicalize};
-pub use determinant::{Cost, Process, find_optimal_process};
+pub use determinant::{Cost, Nonzeros, Process, find_optimal_process};
 pub use dm::{DMResult, dulmage_mendelsohn};
 pub use hopcroft_karp::hopcroft_karp;
 pub use tarjan::tarjan_scc;
@@ -143,7 +143,7 @@ impl From<&Process> for PyProcess {
                 pivot_col: None,
                 row_perm: None,
                 col_perm: None,
-                expected_nonzeros: expected_nonzeros.clone(),
+                expected_nonzeros: expected_nonzeros.to_vec(),
                 minors: None,
                 blocks: None,
                 result: None,
@@ -164,7 +164,7 @@ impl From<&Process> for PyProcess {
                 pivot_col: None,
                 row_perm: None,
                 col_perm: None,
-                expected_nonzeros: expected_nonzeros.clone(),
+                expected_nonzeros: expected_nonzeros.to_vec(),
                 minors: Some(
                     minors
                         .iter()
@@ -190,7 +190,7 @@ impl From<&Process> for PyProcess {
                 pivot_col: None,
                 row_perm: None,
                 col_perm: None,
-                expected_nonzeros: expected_nonzeros.clone(),
+                expected_nonzeros: expected_nonzeros.to_vec(),
                 minors: Some(
                     minors
                         .iter()
@@ -217,7 +217,7 @@ impl From<&Process> for PyProcess {
                 pivot_col: None,
                 row_perm: Some(row_perm.clone()),
                 col_perm: Some(col_perm.clone()),
-                expected_nonzeros: expected_nonzeros.clone(),
+                expected_nonzeros: expected_nonzeros.to_vec(),
                 minors: None,
                 blocks: Some(blocks.iter().map(|p| PyProcess::from(p.as_ref())).collect()),
                 result: None,
@@ -240,7 +240,7 @@ impl From<&Process> for PyProcess {
                 pivot_col: Some(*pivot_col),
                 row_perm: None,
                 col_perm: None,
-                expected_nonzeros: expected_nonzeros.clone(),
+                expected_nonzeros: expected_nonzeros.to_vec(),
                 minors: None,
                 blocks: None,
                 result: Some(Box::new(PyProcess::from(result.as_ref()))),
@@ -262,7 +262,7 @@ impl From<&Process> for PyProcess {
                 pivot_col: None,
                 row_perm: None,
                 col_perm: None,
-                expected_nonzeros: expected_nonzeros.clone(),
+                expected_nonzeros: expected_nonzeros.to_vec(),
                 minors: None,
                 blocks: None,
                 result: Some(Box::new(PyProcess::from(result.as_ref()))),
