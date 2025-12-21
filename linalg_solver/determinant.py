@@ -10,8 +10,10 @@ from __future__ import annotations
 from typing import Any, List, Tuple, TYPE_CHECKING
 import linalg_helper
 
+from linalg_solver.permutation import RowColPermutation
+
 from .log import log
-from .fmt import cformat, multi_add, multi_mul, make_latex_matrix
+from .fmt import cformat, multi_add, multi_mul, make_latex_matrix, pcformat
 
 if TYPE_CHECKING:
     from .linalg import Matrix
@@ -379,6 +381,14 @@ def _execute_col_expansion(
     return result
 
 
+def czech_enumeration_join(l: list[str]) -> str:
+    if len(l) == 0:
+        return ""
+    nonlast = l[:-1]
+    joiner = " a " if len(nonlast) > 0 else ""
+    return ", ".join(nonlast) + joiner + l[-1]
+
+
 def _execute_block_triangular(
     matrix: "Matrix",
     process: "linalg_helper.PyProcess",
@@ -398,25 +408,42 @@ def _execute_block_triangular(
 
     if do_log:
         submatrix_items = _build_submatrix_items(matrix, rows, cols)
-        log(r"Matice má blokovou trojúhelníkovou strukturu s %s bloky.", len(blocks))
-        log(r"$$ %s $$", make_latex_matrix(submatrix_items))
 
-        # Show the permutation and permuted matrix
-        # row_perm and col_perm are in terms of local indices (0..n-1)
-        row_perm_display = [i + 1 for i in row_perm]  # 1-indexed for display
-        col_perm_display = [i + 1 for i in col_perm]
+        rc = RowColPermutation(row_perm, col_perm)
+        perm, t = rc.try_tranpose()
+        rp, cp = perm.to_rows_cols_permutations()
+
+        steps = []
+        if t:
+            steps.append("transpozicí")
+        if not rp.is_id():
+            if transpose := rp.try_get_one_transpose():
+                val = pcformat(
+                    "prohozením řádků $%s$ a $%s$", transpose[0] + 1, transpose[1] + 1
+                )
+            else:
+                val = pcformat("permutací řádků $%s$", rp)
+            steps.append(val)
+        if not cp.is_id():
+            if transpose := cp.try_get_one_transpose():
+                val = pcformat(
+                    "prohozením sloupců  $%s$ a $%s$",
+                    transpose[0] + 1,
+                    transpose[1] + 1,
+                )
+            else:
+                val = pcformat("permutací sloupců  $%s$", cp)
+            steps.append(val)
+
+        ut = all([_get_process_size(block) == 1 for block in blocks])
+        tvar = "horního trojúhelníkového" if ut else "horního blokově trojúhelníkového"
+
+        log("Matici %s převedeme do %s tvaru:", czech_enumeration_join(steps), tvar)
 
         # Build permuted matrix for display
         permuted_items = _build_submatrix_items(
             matrix, actual_row_perm, actual_col_perm
         )
-
-        log(
-            r"Permutace řádků: $(%s)$, sloupců: $(%s)$.",
-            ", ".join(str(i) for i in row_perm_display),
-            ", ".join(str(i) for i in col_perm_display),
-        )
-        log(r"Po permutaci:")
         log(r"$$ %s $$", make_latex_matrix(permuted_items))
         log(r"Determinant je roven součinu determinantů diagonálních bloků.")
 
