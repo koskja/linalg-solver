@@ -7,6 +7,7 @@
 //! - Atomic row operations (AddRow, SwapRows)
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::adjacency::AdjacencyMatrix;
 use crate::canonical::canonicalize;
@@ -26,7 +27,7 @@ pub enum Process {
     RowExpansion {
         row: usize,
         /// (column_index, subprocess) for each non-zero entry
-        minors: Vec<(usize, Box<Process>)>,
+        minors: Vec<(usize, Rc<Process>)>,
         /// Expected non-zero positions (row, col) in the matrix
         expected_nonzeros: Vec<(usize, usize)>,
     },
@@ -35,7 +36,7 @@ pub enum Process {
     ColExpansion {
         col: usize,
         /// (row_index, subprocess) for each non-zero entry
-        minors: Vec<(usize, Box<Process>)>,
+        minors: Vec<(usize, Rc<Process>)>,
         /// Expected non-zero positions (row, col) in the matrix
         expected_nonzeros: Vec<(usize, usize)>,
     },
@@ -43,7 +44,7 @@ pub enum Process {
     /// Block triangular decomposition (det = product of block dets)
     BlockTriangular {
         /// Processes for each diagonal block
-        blocks: Vec<Box<Process>>,
+        blocks: Vec<Rc<Process>>,
         /// Row permutation to achieve block form
         row_perm: Vec<usize>,
         /// Column permutation to achieve block form
@@ -60,7 +61,7 @@ pub enum Process {
         /// Column where dst has a non-zero that we're eliminating
         pivot_col: usize,
         /// Process for the resulting matrix (with one more zero)
-        result: Box<Process>,
+        result: Rc<Process>,
         /// Expected non-zero positions (row, col) in the matrix
         expected_nonzeros: Vec<(usize, usize)>,
     },
@@ -71,7 +72,7 @@ pub enum Process {
         r1: usize,
         r2: usize,
         /// Process for the resulting matrix
-        result: Box<Process>,
+        result: Rc<Process>,
         /// Expected non-zero positions (row, col) in the matrix
         expected_nonzeros: Vec<(usize, usize)>,
     },
@@ -306,7 +307,7 @@ where
         let (block_cost, block_proc) = find_optimal_process_cached(&block_matrix, cache);
 
         total_cost = total_cost.add(&block_cost);
-        blocks.push(Box::new(block_proc));
+        blocks.push(Rc::new(block_proc));
         offset += block_size;
     }
 
@@ -362,7 +363,7 @@ fn try_row_expansion<F>(
         let (minor_cost, minor_proc) = find_optimal_process_cached(&minor_matrix, cache);
 
         total_cost = total_cost.add(&minor_cost);
-        minors.push((col, Box::new(minor_proc)));
+        minors.push((col, Rc::new(minor_proc)));
     }
 
     // Cost: k multiplications (element × minor) + (k-1) additions
@@ -418,7 +419,7 @@ fn try_col_expansion<F>(
         let (minor_cost, minor_proc) = find_optimal_process_cached(&minor_matrix, cache);
 
         total_cost = total_cost.add(&minor_cost);
-        minors.push((row, Box::new(minor_proc)));
+        minors.push((row, Rc::new(minor_proc)));
     }
 
     // Cost: k multiplications (element × minor) + (k-1) additions
@@ -489,7 +490,7 @@ fn try_add_row_operations<F>(
                         src,
                         dst,
                         pivot_col,
-                        result: Box::new(sub_proc),
+                        result: Rc::new(sub_proc),
                         expected_nonzeros: get_nonzeros(matrix),
                     },
                 );
@@ -547,7 +548,7 @@ fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize
                 .map(|(col, p)| {
                     (
                         inv_col.get(*col).copied().unwrap_or(*col),
-                        Box::new(remap_process_with_inv(p, inv_row, inv_col)),
+                        Rc::new(remap_process_with_inv(p, inv_row, inv_col)),
                     )
                 })
                 .collect(),
@@ -564,7 +565,7 @@ fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize
                 .map(|(row, p)| {
                     (
                         inv_row.get(*row).copied().unwrap_or(*row),
-                        Box::new(remap_process_with_inv(p, inv_row, inv_col)),
+                        Rc::new(remap_process_with_inv(p, inv_row, inv_col)),
                     )
                 })
                 .collect(),
@@ -597,7 +598,7 @@ fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize
             src: inv_row.get(*src).copied().unwrap_or(*src),
             dst: inv_row.get(*dst).copied().unwrap_or(*dst),
             pivot_col: inv_col.get(*pivot_col).copied().unwrap_or(*pivot_col),
-            result: Box::new(remap_process_with_inv(result, inv_row, inv_col)),
+            result: Rc::new(remap_process_with_inv(result, inv_row, inv_col)),
             expected_nonzeros: remap_nonzeros(expected_nonzeros, inv_row, inv_col),
         },
         Process::SwapRows {
@@ -608,7 +609,7 @@ fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize
         } => Process::SwapRows {
             r1: inv_row.get(*r1).copied().unwrap_or(*r1),
             r2: inv_row.get(*r2).copied().unwrap_or(*r2),
-            result: Box::new(remap_process_with_inv(result, inv_row, inv_col)),
+            result: Rc::new(remap_process_with_inv(result, inv_row, inv_col)),
             expected_nonzeros: remap_nonzeros(expected_nonzeros, inv_row, inv_col),
         },
     }
@@ -656,7 +657,7 @@ fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize
                         let canon_col = col_perm.iter().position(|&c| c == *col).unwrap_or(*col);
                         (
                             canon_col,
-                            Box::new(canonicalize_process(p, row_perm, col_perm)),
+                            Rc::new(canonicalize_process(p, row_perm, col_perm)),
                         )
                     })
                     .collect(),
@@ -677,7 +678,7 @@ fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize
                         let canon_row = row_perm.iter().position(|&r| r == *row).unwrap_or(*row);
                         (
                             canon_row,
-                            Box::new(canonicalize_process(p, row_perm, col_perm)),
+                            Rc::new(canonicalize_process(p, row_perm, col_perm)),
                         )
                     })
                     .collect(),
@@ -718,7 +719,7 @@ fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize
                 src: canon_src,
                 dst: canon_dst,
                 pivot_col: canon_pivot,
-                result: Box::new(canonicalize_process(result, row_perm, col_perm)),
+                result: Rc::new(canonicalize_process(result, row_perm, col_perm)),
                 expected_nonzeros: canonicalize_nonzeros(expected_nonzeros, row_perm, col_perm),
             }
         }
@@ -733,7 +734,7 @@ fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize
             Process::SwapRows {
                 r1: canon_r1,
                 r2: canon_r2,
-                result: Box::new(canonicalize_process(result, row_perm, col_perm)),
+                result: Rc::new(canonicalize_process(result, row_perm, col_perm)),
                 expected_nonzeros: canonicalize_nonzeros(expected_nonzeros, row_perm, col_perm),
             }
         }

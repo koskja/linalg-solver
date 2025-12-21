@@ -4,6 +4,7 @@ import sympy
 from linalg_solver.log import log, global_logger
 from linalg_solver.linalg import Matrix
 from linalg_solver.random_matrix import (
+    RandomMatrixBuilder,
     gen_regular_matrix,
     gen_diagonalizable_matrix,
     gen_matrix_with_rank,
@@ -35,26 +36,18 @@ def _rationalize_vector(vec):
 # -----------------------------------------------------------------------------
 
 
+def random_sparse_matrix(n: int, sparsity: float):
+    def sparse_dist():
+        if random.random() > sparsity:
+            return random.randint(-5, 5)
+        return 0
+
+    return RandomMatrixBuilder.new().with_dist(sparse_dist).with_size(n, n).build()
+
+
 def determinant_example():
     log(r"\section{Determinant}")
-    A = gen_regular_matrix(5)
-    minor_1 = [random.randint(0, 4), random.randint(0, 4)]
-    minor_2 = [random.randint(0, 3), random.randint(0, 3)]
-    if minor_2[0] >= minor_1[0]:
-        minor_2[0] += 1
-    if minor_2[1] >= minor_1[1]:
-        minor_2[1] += 1
-    A.set_item(minor_1[0], minor_1[1], random.randint(1, 5))
-    A.set_item(minor_2[0], minor_2[1], random.randint(1, 5))
-    for i in range(5):
-        for j in range(5):
-            if i == minor_1[0] and j != minor_1[1]:
-                A.items[i][j] = 0
-            if i != minor_2[0] and j == minor_2[1]:
-                A.items[i][j] = 0
-    A.set_item(
-        minor_1[0], (minor_1[1] + random.randint(1, 5)) % 5, random.randint(1, 5)
-    )
+    A = random_sparse_matrix(6, 0.45)
     A = _rationalize_matrix(A)
     log(r"Vstupní matice $A$: $%s$ \\", A)
     det_val = A.determinant(log_permutation_details=True)
