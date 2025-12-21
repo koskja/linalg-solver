@@ -9,6 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.27", features = ["extension-module"] }
+smallvec = "1.13"
 
 [dev-dependencies]
 rand = "0.8"

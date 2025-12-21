@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use pyo3::prelude::*;
 
+use crate::Permutation;
 use crate::adjacency::AdjacencyMatrix;
 
 /// Result of matrix canonicalization
@@ -17,11 +18,9 @@ use crate::adjacency::AdjacencyMatrix;
 #[derive(Clone, Debug)]
 pub struct CanonicalForm {
     /// Row permutation: canonical_row[i] = original_row[row_perm[i]]
-    #[pyo3(get)]
-    pub row_perm: Vec<usize>,
+    pub row_perm: Permutation,
     /// Column permutation: canonical_col[j] = original_col[col_perm[j]]
-    #[pyo3(get)]
-    pub col_perm: Vec<usize>,
+    pub col_perm: Permutation,
     /// A hash of the canonical form for quick equality checks
     #[pyo3(get)]
     pub canonical_hash: u64,
@@ -29,6 +28,16 @@ pub struct CanonicalForm {
 
 #[pymethods]
 impl CanonicalForm {
+    #[getter]
+    fn row_perm(&self) -> Vec<usize> {
+        self.row_perm.as_slice().to_vec()
+    }
+
+    #[getter]
+    fn col_perm(&self) -> Vec<usize> {
+        self.col_perm.as_slice().to_vec()
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "CanonicalForm(row_perm={:?}, col_perm={:?}, hash={:#x})",
@@ -177,14 +186,14 @@ pub fn canonicalize(graph: &AdjacencyMatrix) -> CanonicalForm {
 
     // Step 2: Build canonical ordering by processing partitions
     // Start with a preliminary column order (indices sorted by partition then by index)
-    let mut col_perm: Vec<usize> = col_partitions
+    let mut col_perm: Permutation = col_partitions
         .iter()
         .flat_map(|p| p.iter().copied())
         .collect();
 
     // Step 3: Iteratively refine row and column orderings
     // Order rows lexicographically within each partition based on current column order
-    let mut row_perm: Vec<usize> = Vec::with_capacity(n_rows);
+    let mut row_perm: Permutation = Permutation::with_capacity(n_rows);
     for partition in &row_partitions {
         let ordered = order_partition_lex(partition, |r| row_signature(graph, r, &col_perm));
         row_perm.extend(ordered);

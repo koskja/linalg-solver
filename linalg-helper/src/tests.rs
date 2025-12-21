@@ -133,11 +133,11 @@ fn test_random_block_diagonal_with_sizes(block_sizes: &[usize], seed: u64) {
     assert_eq!(result.row_perm.len(), total_size);
     assert_eq!(result.col_perm.len(), total_size);
 
-    let mut row_set: Vec<usize> = result.row_perm.clone();
+    let mut row_set: Vec<usize> = result.row_perm.as_slice().to_vec();
     row_set.sort();
     assert_eq!(row_set, (0..total_size).collect::<Vec<_>>());
 
-    let mut col_set: Vec<usize> = result.col_perm.clone();
+    let mut col_set: Vec<usize> = result.col_perm.as_slice().to_vec();
     col_set.sort();
     assert_eq!(col_set, (0..total_size).collect::<Vec<_>>());
 

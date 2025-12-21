@@ -7,6 +7,7 @@ use std::collections::{HashSet, VecDeque};
 
 use pyo3::prelude::*;
 
+use crate::Permutation;
 use crate::adjacency::{AdjacencyMatrix, Matching};
 use crate::hopcroft_karp::hopcroft_karp;
 use crate::tarjan::tarjan_scc;
@@ -16,11 +17,9 @@ use crate::tarjan::tarjan_scc;
 #[derive(Clone)]
 pub struct DMResult {
     /// Row permutation: new_row[i] = old_row[row_perm[i]]
-    #[pyo3(get)]
-    pub row_perm: Vec<usize>,
+    pub row_perm: Permutation,
     /// Column permutation: new_col[j] = old_col[col_perm[j]]
-    #[pyo3(get)]
-    pub col_perm: Vec<usize>,
+    pub col_perm: Permutation,
     /// Sizes of diagonal blocks
     #[pyo3(get)]
     pub block_sizes: Vec<usize>,
@@ -28,6 +27,16 @@ pub struct DMResult {
 
 #[pymethods]
 impl DMResult {
+    #[getter]
+    fn row_perm(&self) -> Vec<usize> {
+        self.row_perm.as_slice().to_vec()
+    }
+
+    #[getter]
+    fn col_perm(&self) -> Vec<usize> {
+        self.col_perm.as_slice().to_vec()
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "DMResult(row_perm={:?}, col_perm={:?}, block_sizes={:?})",
@@ -239,8 +248,8 @@ pub fn dulmage_mendelsohn(graph: &AdjacencyMatrix) -> DMResult {
     let normalized_blocks = normalize_block_order(graph, &matching, blocks);
 
     // Build final permutations
-    let mut row_perm = Vec::new();
-    let mut col_perm = Vec::new();
+    let mut row_perm: Permutation = Permutation::with_capacity(rows);
+    let mut col_perm: Permutation = Permutation::with_capacity(cols);
     let mut block_sizes = Vec::new();
 
     for (pairs, _) in normalized_blocks {
@@ -376,13 +385,13 @@ mod tests {
         ]));
         // Row and column permutations should be identity [0, 1, 2]
         assert_eq!(
-            result.row_perm,
-            vec![0, 1, 2],
+            result.row_perm.as_slice(),
+            &[0, 1, 2],
             "Row permutation should be identity"
         );
         assert_eq!(
-            result.col_perm,
-            vec![0, 1, 2],
+            result.col_perm.as_slice(),
+            &[0, 1, 2],
             "Column permutation should be identity"
         );
     }
@@ -398,13 +407,13 @@ mod tests {
         ]));
         // Permutations should be identity [0, 1, 2, 3] since blocks are already in order
         assert_eq!(
-            result.row_perm,
-            vec![0, 1, 2, 3],
+            result.row_perm.as_slice(),
+            &[0, 1, 2, 3],
             "Row permutation should be identity for block diagonal"
         );
         assert_eq!(
-            result.col_perm,
-            vec![0, 1, 2, 3],
+            result.col_perm.as_slice(),
+            &[0, 1, 2, 3],
             "Column permutation should be identity for block diagonal"
         );
         assert_eq!(
@@ -426,13 +435,13 @@ mod tests {
         // Lower triangular → upper triangular requires reversing order
         // This is correct behavior - blocks must respect topological order
         assert_eq!(
-            result.row_perm,
-            vec![2, 1, 0],
+            result.row_perm.as_slice(),
+            &[2, 1, 0],
             "Lower triangular needs reverse order for upper block form"
         );
         assert_eq!(
-            result.col_perm,
-            vec![2, 1, 0],
+            result.col_perm.as_slice(),
+            &[2, 1, 0],
             "Lower triangular needs reverse order for upper block form"
         );
     }
@@ -447,13 +456,13 @@ mod tests {
         ]));
         // Upper triangular is already in the right form - identity permutation
         assert_eq!(
-            result.row_perm,
-            vec![0, 1, 2],
+            result.row_perm.as_slice(),
+            &[0, 1, 2],
             "Row permutation should be identity for upper triangular"
         );
         assert_eq!(
-            result.col_perm,
-            vec![0, 1, 2],
+            result.col_perm.as_slice(),
+            &[0, 1, 2],
             "Column permutation should be identity for upper triangular"
         );
     }
@@ -470,13 +479,13 @@ mod tests {
         // Even if internally the algorithm finds elements in different order,
         // the normalization should produce identity
         assert_eq!(
-            result.row_perm,
-            vec![0, 1, 2],
+            result.row_perm.as_slice(),
+            &[0, 1, 2],
             "Should normalize to identity"
         );
         assert_eq!(
-            result.col_perm,
-            vec![0, 1, 2],
+            result.col_perm.as_slice(),
+            &[0, 1, 2],
             "Should normalize to identity"
         );
     }

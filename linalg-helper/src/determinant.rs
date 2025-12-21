@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use crate::Permutation;
 use crate::adjacency::AdjacencyMatrix;
 use crate::canonical::canonicalize;
 use crate::dm::dulmage_mendelsohn;
@@ -151,9 +152,9 @@ pub enum Process {
         /// Processes for each diagonal block
         blocks: Vec<Rc<Process>>,
         /// Row permutation to achieve block form
-        row_perm: Vec<usize>,
+        row_perm: Permutation,
         /// Column permutation to achieve block form
-        col_perm: Vec<usize>,
+        col_perm: Permutation,
         /// Expected non-zero positions (row, col) in the matrix
         expected_nonzeros: Nonzeros,
     },

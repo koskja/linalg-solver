@@ -4,6 +4,7 @@
 //! exposed to Python via PyO3.
 
 use pyo3::prelude::*;
+use smallvec::SmallVec;
 
 mod adjacency;
 mod canonical;
@@ -21,6 +22,10 @@ pub use determinant::{Cost, Nonzeros, Process, find_optimal_process};
 pub use dm::{DMResult, dulmage_mendelsohn};
 pub use hopcroft_karp::hopcroft_karp;
 pub use tarjan::tarjan_scc;
+
+pub type MatrixIndex = usize;
+pub const INLINE_PERM_CAPACITY: usize = 16;
+pub type Permutation = SmallVec<[MatrixIndex; INLINE_PERM_CAPACITY]>;
 
 /// Compute the Dulmage-Mendelsohn decomposition of a matrix.
 ///
@@ -215,8 +220,8 @@ impl From<&Process> for PyProcess {
                 r1: None,
                 r2: None,
                 pivot_col: None,
-                row_perm: Some(row_perm.clone()),
-                col_perm: Some(col_perm.clone()),
+                row_perm: Some(row_perm.clone().into_vec()),
+                col_perm: Some(col_perm.clone().into_vec()),
                 expected_nonzeros: expected_nonzeros.to_vec(),
                 minors: None,
                 blocks: Some(blocks.iter().map(|p| PyProcess::from(p.as_ref())).collect()),
