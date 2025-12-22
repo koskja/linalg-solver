@@ -13,110 +13,10 @@ use crate::Permutation;
 use crate::adjacency::AdjacencyMatrix;
 use crate::canonical::canonicalize;
 use crate::dm::dulmage_mendelsohn;
+use crate::nonzeros::Nonzeros;
 
-#[derive(Clone, Debug)]
-pub struct SmallNonzeros {
-    bits: u64, // 8x8 bit matrix
-}
-impl SmallNonzeros {
-    pub fn new(bits: u64) -> Self {
-        Self { bits }
-    }
-    pub fn get(&self, r: usize, c: usize) -> bool {
-        (self.bits >> (r * 8 + c)) & 1 == 1
-    }
-    pub fn set(&mut self, r: usize, c: usize, value: bool) {
-        if value {
-            self.bits |= 1 << (r * 8 + c);
-        } else {
-            self.bits &= !(1 << (r * 8 + c));
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum Nonzeros {
-    Inline(SmallNonzeros),
-    Vector(Vec<(usize, usize)>),
-}
-
-impl Nonzeros {
-    pub fn new(matrix: &AdjacencyMatrix) -> Self {
-        if matrix.rows <= 8 && matrix.cols <= 8 {
-            Self::new_small(matrix)
-        } else {
-            Self::new_vector(matrix)
-        }
-    }
-    fn new_small(matrix: &AdjacencyMatrix) -> Self {
-        let mut small = SmallNonzeros::new(0);
-        for r in 0..matrix.rows {
-            for c in 0..matrix.cols {
-                if matrix.get(r, c) {
-                    small.set(r, c, true);
-                }
-            }
-        }
-        Self::Inline(small)
-    }
-    fn new_vector(matrix: &AdjacencyMatrix) -> Self {
-        let mut nonzeros = Vec::new();
-        for r in 0..matrix.rows {
-            for c in 0..matrix.cols {
-                if matrix.get(r, c) {
-                    nonzeros.push((r, c));
-                }
-            }
-        }
-        Self::Vector(nonzeros)
-    }
-    pub fn permute(&self, row_perm: &[usize], col_perm: &[usize]) -> Self {
-        match self {
-            Self::Inline(small) => {
-                let mut new_small = SmallNonzeros::new(0);
-                for r in 0..row_perm.len() {
-                    for c in 0..col_perm.len() {
-                        if small.get(r, c) {
-                            new_small.set(row_perm[r], col_perm[c], true);
-                        }
-                    }
-                }
-                Self::Inline(new_small)
-            }
-            Self::Vector(vec) => Self::Vector(
-                vec.iter()
-                    .map(|(r, c)| (row_perm[*r], col_perm[*c]))
-                    .collect(),
-            ),
-        }
-    }
-    pub fn permute_inv(&self, row_perm: &[usize], col_perm: &[usize]) -> Self {
-        let mut inv_row = vec![0; row_perm.len()];
-        let mut inv_col = vec![0; col_perm.len()];
-        for (i, &r) in row_perm.iter().enumerate() {
-            inv_row[r] = i;
-        }
-        for (i, &c) in col_perm.iter().enumerate() {
-            inv_col[c] = i;
-        }
-        self.permute(&inv_row, &inv_col)
-    }
-    pub fn to_vec(&self) -> Vec<(usize, usize)> {
-        match self {
-            Self::Inline(small) => {
-                let mut vec = Vec::new();
-                for r in 0..8 {
-                    for c in 0..8 {
-                        if small.get(r, c) {
-                            vec.push((r, c));
-                        }
-                    }
-                }
-                vec
-            }
-            Self::Vector(vec) => vec.clone(),
-        }
-    }
+fn build_nonzeros(matrix: &AdjacencyMatrix) -> Nonzeros {
+    Nonzeros::from_fn(matrix.rows, matrix.cols, |r, c| matrix.get(r, c))
 }
 
 /// Represents a computation strategy for calculating a determinant
@@ -249,7 +149,7 @@ fn direct_cost(size: usize) -> Cost {
 
 /// Extract all non-zero positions from an adjacency matrix
 fn get_nonzeros(matrix: &AdjacencyMatrix) -> Nonzeros {
-    Nonzeros::new(matrix)
+    build_nonzeros(matrix)
 }
 
 /// Cache for storing optimal processes by canonical hash
@@ -293,7 +193,7 @@ fn find_optimal_process_cached(
     // Insert a sentinel to prevent infinite recursion
     // This uses direct cost as a fallback if we encounter a cycle
     // Note: We store canonical nonzeros (indices 0..n) as this is for the cached canonical form
-    let canonical_nonzeros = Nonzeros::new(matrix).permute_inv(&canon.row_perm, &canon.col_perm);
+    let canonical_nonzeros = build_nonzeros(matrix).permute_inv(&canon.row_perm, &canon.col_perm);
     cache.insert(
         canon.canonical_hash,
         (

@@ -7,10 +7,12 @@ use pyo3::prelude::*;
 use smallvec::SmallVec;
 
 mod adjacency;
+mod bitlist;
 mod canonical;
 mod determinant;
 mod dm;
 mod hopcroft_karp;
+mod nonzeros;
 mod tarjan;
 
 #[cfg(test)]
@@ -18,7 +20,7 @@ mod tests;
 
 pub use adjacency::{AdjacencyMatrix, Matching};
 pub use canonical::{CanonicalForm, are_permutation_equivalent, canonicalize};
-pub use determinant::{Cost, Nonzeros, Process, find_optimal_process};
+pub use determinant::{Cost, Process, find_optimal_process};
 pub use dm::{DMResult, dulmage_mendelsohn};
 pub use hopcroft_karp::hopcroft_karp;
 pub use tarjan::tarjan_scc;

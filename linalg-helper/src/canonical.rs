@@ -12,6 +12,7 @@ use pyo3::prelude::*;
 
 use crate::Permutation;
 use crate::adjacency::AdjacencyMatrix;
+use crate::bitlist::BitList;
 
 /// Result of matrix canonicalization
 #[pyclass]
@@ -74,12 +75,8 @@ fn wl_refine(graph: &AdjacencyMatrix) -> (Vec<Vec<usize>>, Vec<Vec<usize>>) {
     }
 
     // Initialize colors based on degree
-    let mut row_colors: Vec<Color> = (0..n_rows)
-        .map(|r| Color::new(graph.row_neighbors(r).len()))
-        .collect();
-    let mut col_colors: Vec<Color> = (0..n_cols)
-        .map(|c| Color::new(graph.col_neighbors(c).len()))
-        .collect();
+    let mut row_colors: Vec<Color> = (0..n_rows).map(|r| Color::new(graph.row_nnz(r))).collect();
+    let mut col_colors: Vec<Color> = (0..n_cols).map(|c| Color::new(graph.col_nnz(c))).collect();
 
     // Iterate until stable
     for _ in 0..n_rows + n_cols {
@@ -106,22 +103,24 @@ fn wl_refine(graph: &AdjacencyMatrix) -> (Vec<Vec<usize>>, Vec<Vec<usize>>) {
 
         // Update row colors based on neighbor column colors
         for r in 0..n_rows {
-            let mut neighbor_cols: Vec<usize> = graph
-                .row_neighbors(r)
-                .iter()
-                .map(|&c| col_color_map[&old_col_colors[c]])
-                .collect();
+            let mut neighbor_cols = Vec::with_capacity(graph.row_nnz(r));
+            for c in 0..n_cols {
+                if graph.get(r, c) {
+                    neighbor_cols.push(col_color_map[&old_col_colors[c]]);
+                }
+            }
             row_colors[r] =
                 Color::from_multiset(row_color_map[&old_row_colors[r]], &mut neighbor_cols);
         }
 
         // Update column colors based on neighbor row colors
         for c in 0..n_cols {
-            let mut neighbor_rows: Vec<usize> = graph
-                .col_neighbors(c)
-                .iter()
-                .map(|&r| row_color_map[&old_row_colors[r]])
-                .collect();
+            let mut neighbor_rows = Vec::with_capacity(graph.col_nnz(c));
+            for r in 0..n_rows {
+                if graph.get(r, c) {
+                    neighbor_rows.push(row_color_map[&old_row_colors[r]]);
+                }
+            }
             col_colors[c] =
                 Color::from_multiset(col_color_map[&old_col_colors[c]], &mut neighbor_rows);
         }
@@ -149,21 +148,21 @@ fn group_by_color(colors: &[Color]) -> Vec<Vec<usize>> {
 }
 
 /// Compute the lexicographic signature of a vertex relative to an ordering
-fn row_signature(graph: &AdjacencyMatrix, row: usize, col_order: &[usize]) -> Vec<bool> {
-    col_order.iter().map(|&c| graph.get(row, c)).collect()
+fn row_signature(graph: &AdjacencyMatrix, row: usize, col_order: &[usize]) -> BitList {
+    BitList::from_bools(col_order.iter().map(|&c| graph.get(row, c)))
 }
 
-fn col_signature(graph: &AdjacencyMatrix, col: usize, row_order: &[usize]) -> Vec<bool> {
-    row_order.iter().map(|&r| graph.get(r, col)).collect()
+fn col_signature(graph: &AdjacencyMatrix, col: usize, row_order: &[usize]) -> BitList {
+    BitList::from_bools(row_order.iter().map(|&r| graph.get(r, col)))
 }
 
 /// Order indices within a partition lexicographically by their signatures
-fn order_partition_lex<F>(partition: &[usize], signature_fn: F) -> Vec<usize>
+fn order_partition_lex<F, S>(partition: &[usize], mut signature_fn: F) -> Vec<usize>
 where
-    F: Fn(usize) -> Vec<bool>,
+    F: FnMut(usize) -> S,
+    S: Ord,
 {
-    let mut indexed: Vec<(usize, Vec<bool>)> =
-        partition.iter().map(|&i| (i, signature_fn(i))).collect();
+    let mut indexed: Vec<(usize, S)> = partition.iter().map(|&i| (i, signature_fn(i))).collect();
     indexed.sort_by(|a, b| a.1.cmp(&b.1));
     indexed.into_iter().map(|(i, _)| i).collect()
 }

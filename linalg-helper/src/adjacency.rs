@@ -1,9 +1,11 @@
 /// Adjacency matrix representation (row-major, true = nonzero)
+use crate::nonzeros::Nonzeros;
+
 #[derive(Clone)]
 pub struct AdjacencyMatrix {
     pub rows: usize,
     pub cols: usize,
-    data: Vec<bool>,
+    data: Nonzeros,
 }
 
 impl AdjacencyMatrix {
@@ -11,24 +13,26 @@ impl AdjacencyMatrix {
         Self {
             rows,
             cols,
-            data: vec![false; rows * cols],
+            data: Nonzeros::empty(rows, cols),
         }
     }
 
     pub fn from_vec(matrix: Vec<Vec<bool>>) -> Self {
         let rows = matrix.len();
         let cols = if rows > 0 { matrix[0].len() } else { 0 };
-        let mut data = vec![false; rows * cols];
+        let mut data = Nonzeros::empty(rows, cols);
         for (i, row) in matrix.iter().enumerate() {
             for (j, &val) in row.iter().enumerate() {
-                data[i * cols + j] = val;
+                if val {
+                    data.set(i, j, true);
+                }
             }
         }
         Self { rows, cols, data }
     }
 
     pub fn get(&self, row: usize, col: usize) -> bool {
-        self.data[row * self.cols + col]
+        self.data.contains(row, col)
     }
 
     /// Get all columns connected to a given row
@@ -43,7 +47,7 @@ impl AdjacencyMatrix {
 
     /// Set a value at the given position
     pub fn set(&mut self, row: usize, col: usize, value: bool) {
-        self.data[row * self.cols + col] = value;
+        self.data.set(row, col, value);
     }
 
     /// Extract a submatrix with the given rows and columns
@@ -51,11 +55,13 @@ impl AdjacencyMatrix {
     pub fn submatrix(&self, row_indices: &[usize], col_indices: &[usize]) -> Self {
         let new_rows = row_indices.len();
         let new_cols = col_indices.len();
-        let mut data = vec![false; new_rows * new_cols];
+        let mut data = Nonzeros::empty(new_rows, new_cols);
 
         for (new_r, &old_r) in row_indices.iter().enumerate() {
             for (new_c, &old_c) in col_indices.iter().enumerate() {
-                data[new_r * new_cols + new_c] = self.get(old_r, old_c);
+                if self.get(old_r, old_c) {
+                    data.set(new_r, new_c, true);
+                }
             }
         }
 
@@ -108,7 +114,7 @@ impl AdjacencyMatrix {
 
     /// Count total non-zero entries
     pub fn total_nnz(&self) -> usize {
-        self.data.iter().filter(|&&v| v).count()
+        self.data.count()
     }
 }
 
