@@ -120,11 +120,11 @@ def execute_process(
     # Verify the matrix is at least as sparse as the process expects.
     #
     # NOTE:
-    # For transformation processes like AddRow/SwapRows, the Rust-side
+    # For transformation processes like AddRow, the Rust-side
     # `expected_nonzeros` corresponds to the *result* of the transformation
     # (after eliminating/swapping), not the input. We therefore validate
     # sparsity after applying the transformation in their respective executors.
-    if process_type not in ("AddRow", "SwapRows"):
+    if process_type not in ("AddRow"):
         check_sparsity(matrix, process.expected_nonzeros, rows, cols)
 
     if process_type == "Direct":
@@ -137,8 +137,6 @@ def execute_process(
         return _execute_block_triangular(matrix, process, rows, cols, do_log, sign)
     elif process_type == "AddRow":
         return _execute_add_row(matrix, process, rows, cols, do_log, sign)
-    elif process_type == "SwapRows":
-        return _execute_swap_rows(matrix, process, rows, cols, do_log, sign)
     else:
         raise ValueError(r"Unknown process type: %s" % process_type)
 
@@ -511,8 +509,6 @@ def _get_process_size(process: "linalg_helper.PyProcess") -> int:
         return sum(_get_process_size(b) for b in blocks)
     elif process_type == "AddRow":
         return _get_process_size(process.result)
-    elif process_type == "SwapRows":
-        return _get_process_size(process.result)
     else:
         return 0
 
@@ -733,40 +729,6 @@ def _execute_add_row(
         return execute_process(
             modified_matrix, result_process, rows, cols, do_log, sign
         )
-
-
-def _execute_swap_rows(
-    matrix: "Matrix",
-    process: "linalg_helper.PyProcess",
-    rows: List[int],
-    cols: List[int],
-    do_log: bool,
-    sign: int,
-) -> Any:
-    """Execute a row swap operation (determinant gets negated)."""
-    r1 = process.r1
-    r2 = process.r2
-    result_process = process.result
-
-    if do_log:
-        submatrix_items = _build_submatrix_items(matrix, rows, cols)
-        log(r"Výměna řádků %s a %s (změna znaménka determinantu):", r1 + 1, r2 + 1)
-        log(r"$$ %s $$", make_latex_matrix(submatrix_items))
-
-    # Swap rows in the index list
-    swapped_rows = rows.copy()
-    swapped_rows[r1], swapped_rows[r2] = swapped_rows[r2], swapped_rows[r1]
-
-    if do_log:
-        swapped_items = _build_submatrix_items(matrix, swapped_rows, cols)
-        log(r"Po výměně:")
-        log(r"$$ %s $$", make_latex_matrix(swapped_items))
-
-    # Negate sign due to row swap
-    new_sign = -sign
-
-    check_sparsity(matrix, result_process.expected_nonzeros, swapped_rows, cols)
-    return execute_process(matrix, result_process, swapped_rows, cols, do_log, new_sign)
 
 
 def determinant(matrix: "Matrix", do_log: bool = True) -> Any:

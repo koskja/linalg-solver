@@ -252,28 +252,6 @@ impl From<&Process> for PyProcess {
                 blocks: None,
                 result: Some(Box::new(PyProcess::from(result.as_ref()))),
             },
-            Process::SwapRows {
-                r1,
-                r2,
-                result,
-                expected_nonzeros,
-            } => PyProcess {
-                process_type: "SwapRows".to_string(),
-                size: None,
-                row: None,
-                col: None,
-                src: None,
-                dst: None,
-                r1: Some(*r1),
-                r2: Some(*r2),
-                pivot_col: None,
-                row_perm: None,
-                col_perm: None,
-                expected_nonzeros: expected_nonzeros.to_vec(),
-                minors: None,
-                blocks: None,
-                result: Some(Box::new(PyProcess::from(result.as_ref()))),
-            },
         }
     }
 }

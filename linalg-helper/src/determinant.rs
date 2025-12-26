@@ -71,17 +71,6 @@ pub enum Process {
         /// Expected non-zero positions (row, col) in the matrix
         expected_nonzeros: Nonzeros,
     },
-
-    /// Single row operation: swap two rows
-    /// det(original) = -det(after_swap), sign flip is free
-    SwapRows {
-        r1: usize,
-        r2: usize,
-        /// Process for the resulting matrix
-        result: Rc<Process>,
-        /// Expected non-zero positions (row, col) in the matrix
-        expected_nonzeros: Nonzeros,
-    },
 }
 
 /// Cost of a computation strategy
@@ -575,17 +564,6 @@ fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize
             result: Rc::new(remap_process_with_inv(result, inv_row, inv_col)),
             expected_nonzeros: remap_nonzeros(expected_nonzeros, inv_row, inv_col),
         },
-        Process::SwapRows {
-            r1,
-            r2,
-            result,
-            expected_nonzeros,
-        } => Process::SwapRows {
-            r1: inv_row.get(*r1).copied().unwrap_or(*r1),
-            r2: inv_row.get(*r2).copied().unwrap_or(*r2),
-            result: Rc::new(remap_process_with_inv(result, inv_row, inv_col)),
-            expected_nonzeros: remap_nonzeros(expected_nonzeros, inv_row, inv_col),
-        },
     }
 }
 
@@ -682,21 +660,6 @@ fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize
                 src: canon_src,
                 dst: canon_dst,
                 pivot_col: canon_pivot,
-                result: Rc::new(canonicalize_process(result, row_perm, col_perm)),
-                expected_nonzeros: canonicalize_nonzeros(expected_nonzeros, row_perm, col_perm),
-            }
-        }
-        Process::SwapRows {
-            r1,
-            r2,
-            result,
-            expected_nonzeros,
-        } => {
-            let canon_r1 = row_perm.iter().position(|&r| r == *r1).unwrap_or(*r1);
-            let canon_r2 = row_perm.iter().position(|&r| r == *r2).unwrap_or(*r2);
-            Process::SwapRows {
-                r1: canon_r1,
-                r2: canon_r2,
                 result: Rc::new(canonicalize_process(result, row_perm, col_perm)),
                 expected_nonzeros: canonicalize_nonzeros(expected_nonzeros, row_perm, col_perm),
             }
