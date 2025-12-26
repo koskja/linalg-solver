@@ -84,6 +84,30 @@ def find_optimal_process(
     return result.cost, result.process
 
 
+def _get_inner_process(
+    process: "linalg_helper.PyProcess",
+) -> tuple:
+    """
+    Extract the inner process struct and its type name from a PyProcess enum.
+
+    Returns:
+        A tuple of (inner_process, type_name) where inner_process is one of
+        ProcessDirect, ProcessRowExpansion, etc. and type_name is a string.
+    """
+    if process.direct is not None:
+        return process.direct, "Direct"
+    elif process.row_expansion is not None:
+        return process.row_expansion, "RowExpansion"
+    elif process.col_expansion is not None:
+        return process.col_expansion, "ColExpansion"
+    elif process.block_triangular is not None:
+        return process.block_triangular, "BlockTriangular"
+    elif process.add_row is not None:
+        return process.add_row, "AddRow"
+    else:
+        raise ValueError("Unknown process variant")
+
+
 def execute_process(
     matrix: "Matrix",
     process: "linalg_helper.PyProcess",
@@ -115,7 +139,7 @@ def execute_process(
     if cols is None:
         cols = list(range(n))
 
-    process_type = process.process_type
+    inner, process_type = _get_inner_process(process)
 
     # Verify the matrix is at least as sparse as the process expects.
     #
@@ -125,18 +149,18 @@ def execute_process(
     # (after eliminating/swapping), not the input. We therefore validate
     # sparsity after applying the transformation in their respective executors.
     if process_type not in ("AddRow"):
-        check_sparsity(matrix, process.expected_nonzeros, rows, cols)
+        check_sparsity(matrix, inner.expected_nonzeros, rows, cols)
 
     if process_type == "Direct":
-        return _execute_direct(matrix, rows, cols, do_log, sign)
+        return _execute_direct(matrix, inner, rows, cols, do_log, sign)
     elif process_type == "RowExpansion":
-        return _execute_row_expansion(matrix, process, rows, cols, do_log, sign)
+        return _execute_row_expansion(matrix, inner, rows, cols, do_log, sign)
     elif process_type == "ColExpansion":
-        return _execute_col_expansion(matrix, process, rows, cols, do_log, sign)
+        return _execute_col_expansion(matrix, inner, rows, cols, do_log, sign)
     elif process_type == "BlockTriangular":
-        return _execute_block_triangular(matrix, process, rows, cols, do_log, sign)
+        return _execute_block_triangular(matrix, inner, rows, cols, do_log, sign)
     elif process_type == "AddRow":
-        return _execute_add_row(matrix, process, rows, cols, do_log, sign)
+        return _execute_add_row(matrix, inner, rows, cols, do_log, sign)
     else:
         raise ValueError(r"Unknown process type: %s" % process_type)
 
@@ -162,6 +186,7 @@ def _build_submatrix_items(
 
 def _execute_direct(
     matrix: "Matrix",
+    process: "linalg_helper.ProcessDirect",
     rows: List[int],
     cols: List[int],
     do_log: bool,
@@ -225,7 +250,7 @@ def _execute_direct(
 
 def _execute_row_expansion(
     matrix: "Matrix",
-    process: "linalg_helper.PyProcess",
+    process: "linalg_helper.ProcessRowExpansion",
     rows: List[int],
     cols: List[int],
     do_log: bool,
@@ -303,7 +328,7 @@ def _execute_row_expansion(
 
 def _execute_col_expansion(
     matrix: "Matrix",
-    process: "linalg_helper.PyProcess",
+    process: "linalg_helper.ProcessColExpansion",
     rows: List[int],
     cols: List[int],
     do_log: bool,
@@ -389,7 +414,7 @@ def czech_enumeration_join(l: list[str]) -> str:
 
 def _execute_block_triangular(
     matrix: "Matrix",
-    process: "linalg_helper.PyProcess",
+    process: "linalg_helper.ProcessBlockTriangular",
     rows: List[int],
     cols: List[int],
     do_log: bool,
@@ -433,7 +458,7 @@ def _execute_block_triangular(
                 val = pcformat("permutací sloupců  $%s$", cp)
             steps.append(val)
 
-        ut = all([_get_process_size(block) == 1 for block in blocks])
+        ut = all([block.size == 1 for block in blocks])
         tvar = "horního trojúhelníkového" if ut else "horního blokově trojúhelníkového"
 
         log("Matici %s převedeme do %s tvaru:", czech_enumeration_join(steps), tvar)
@@ -450,7 +475,7 @@ def _execute_block_triangular(
 
     for i, block_process in enumerate(blocks):
         # Determine block size from the process
-        block_size = _get_process_size(block_process)
+        block_size = block_process.size
 
         block_rows = actual_row_perm[offset : offset + block_size]
         block_cols = actual_col_perm[offset : offset + block_size]
@@ -485,32 +510,6 @@ def _execute_block_triangular(
         )
 
     return result
-
-
-def _get_process_size(process: "linalg_helper.PyProcess") -> int:
-    """Determine the matrix size that a process operates on."""
-    process_type = process.process_type
-
-    if process_type == "Direct":
-        return process.size or 0
-    elif process_type == "RowExpansion":
-        minors = process.minors
-        if minors:
-            # Size is 1 + size of any minor
-            return 1 + _get_process_size(minors[0][1])
-        return 1
-    elif process_type == "ColExpansion":
-        minors = process.minors
-        if minors:
-            return 1 + _get_process_size(minors[0][1])
-        return 1
-    elif process_type == "BlockTriangular":
-        blocks = process.blocks
-        return sum(_get_process_size(b) for b in blocks)
-    elif process_type == "AddRow":
-        return _get_process_size(process.result)
-    else:
-        return 0
 
 
 def _is_polynomial(value: Any) -> bool:
@@ -596,7 +595,7 @@ def _polynomial_safe_divide(numerator: Any, denominator: Any) -> Any:
 
 def _execute_add_row(
     matrix: "Matrix",
-    process: "linalg_helper.PyProcess",
+    process: "linalg_helper.ProcessAddRow",
     rows: List[int],
     cols: List[int],
     do_log: bool,
@@ -677,7 +676,8 @@ def _execute_add_row(
             log(r"$$ %s $$", make_latex_matrix(new_submatrix_items))
 
         # Compute sub-determinant (which is multiplied by src_pivot)
-        check_sparsity(modified_matrix, result_process.expected_nonzeros, rows, cols)
+        result_inner, _ = _get_inner_process(result_process)
+        check_sparsity(modified_matrix, result_inner.expected_nonzeros, rows, cols)
         sub_det = execute_process(
             modified_matrix, result_process, rows, cols, do_log, sign
         )
@@ -725,7 +725,8 @@ def _execute_add_row(
             log(r"Po úpravě:")
             log(r"$$ %s $$", make_latex_matrix(new_submatrix_items))
 
-        check_sparsity(modified_matrix, result_process.expected_nonzeros, rows, cols)
+        result_inner, _ = _get_inner_process(result_process)
+        check_sparsity(modified_matrix, result_inner.expected_nonzeros, rows, cols)
         return execute_process(
             modified_matrix, result_process, rows, cols, do_log, sign
         )

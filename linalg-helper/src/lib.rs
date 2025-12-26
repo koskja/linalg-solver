@@ -97,39 +97,111 @@ impl PyCost {
     }
 }
 
+/// Direct computation process (for matrices of size <= 2)
+#[pyclass]
+#[derive(Clone)]
+pub struct ProcessDirect {
+    #[pyo3(get)]
+    pub size: usize,
+    #[pyo3(get)]
+    pub expected_nonzeros: Vec<(usize, usize)>,
+}
+
+/// Laplace expansion along a row
+#[pyclass]
+#[derive(Clone)]
+pub struct ProcessRowExpansion {
+    #[pyo3(get)]
+    pub row: usize,
+    #[pyo3(get)]
+    pub expected_nonzeros: Vec<(usize, usize)>,
+    /// (column_index, subprocess) for each non-zero entry
+    pub minors_internal: Vec<(usize, PyProcess)>,
+}
+
+#[pymethods]
+impl ProcessRowExpansion {
+    #[getter]
+    fn minors(&self) -> Vec<(usize, PyProcess)> {
+        self.minors_internal.clone()
+    }
+}
+
+/// Laplace expansion along a column
+#[pyclass]
+#[derive(Clone)]
+pub struct ProcessColExpansion {
+    #[pyo3(get)]
+    pub col: usize,
+    #[pyo3(get)]
+    pub expected_nonzeros: Vec<(usize, usize)>,
+    /// (row_index, subprocess) for each non-zero entry
+    pub minors_internal: Vec<(usize, PyProcess)>,
+}
+
+#[pymethods]
+impl ProcessColExpansion {
+    #[getter]
+    fn minors(&self) -> Vec<(usize, PyProcess)> {
+        self.minors_internal.clone()
+    }
+}
+
+/// Block triangular decomposition (det = product of block dets)
+#[pyclass]
+#[derive(Clone)]
+pub struct ProcessBlockTriangular {
+    #[pyo3(get)]
+    pub row_perm: Vec<usize>,
+    #[pyo3(get)]
+    pub col_perm: Vec<usize>,
+    #[pyo3(get)]
+    pub expected_nonzeros: Vec<(usize, usize)>,
+    /// Processes for each diagonal block
+    pub blocks_internal: Vec<PyProcess>,
+}
+
+#[pymethods]
+impl ProcessBlockTriangular {
+    #[getter]
+    fn blocks(&self) -> Vec<PyProcess> {
+        self.blocks_internal.clone()
+    }
+}
+
+/// Single row operation: add row `src` (scaled) to row `dst` to zero out (dst, pivot_col)
+#[pyclass]
+#[derive(Clone)]
+pub struct ProcessAddRow {
+    #[pyo3(get)]
+    pub src: usize,
+    #[pyo3(get)]
+    pub dst: usize,
+    #[pyo3(get)]
+    pub pivot_col: usize,
+    #[pyo3(get)]
+    pub expected_nonzeros: Vec<(usize, usize)>,
+    /// Process for the resulting matrix
+    pub result_internal: Box<PyProcess>,
+}
+
+#[pymethods]
+impl ProcessAddRow {
+    #[getter]
+    fn result(&self) -> PyProcess {
+        (*self.result_internal).clone()
+    }
+}
+
 /// Python-accessible wrapper for the determinant computation process
 #[pyclass]
 #[derive(Clone)]
-pub struct PyProcess {
-    #[pyo3(get)]
-    pub process_type: String,
-    #[pyo3(get)]
-    pub size: Option<usize>,
-    #[pyo3(get)]
-    pub row: Option<usize>,
-    #[pyo3(get)]
-    pub col: Option<usize>,
-    #[pyo3(get)]
-    pub src: Option<usize>,
-    #[pyo3(get)]
-    pub dst: Option<usize>,
-    #[pyo3(get)]
-    pub r1: Option<usize>,
-    #[pyo3(get)]
-    pub r2: Option<usize>,
-    #[pyo3(get)]
-    pub pivot_col: Option<usize>,
-    #[pyo3(get)]
-    pub row_perm: Option<Vec<usize>>,
-    #[pyo3(get)]
-    pub col_perm: Option<Vec<usize>>,
-    /// Expected non-zero positions (row, col) in the matrix for this process step
-    #[pyo3(get)]
-    pub expected_nonzeros: Vec<(usize, usize)>,
-    // These fields use custom getters due to recursive structure
-    pub minors: Option<Vec<(usize, PyProcess)>>,
-    pub blocks: Option<Vec<PyProcess>>,
-    pub result: Option<Box<PyProcess>>,
+pub enum PyProcess {
+    Direct(ProcessDirect),
+    RowExpansion(ProcessRowExpansion),
+    ColExpansion(ProcessColExpansion),
+    BlockTriangular(ProcessBlockTriangular),
+    AddRow(ProcessAddRow),
 }
 
 impl From<&Process> for PyProcess {
@@ -138,120 +210,58 @@ impl From<&Process> for PyProcess {
             Process::Direct {
                 size,
                 expected_nonzeros,
-            } => PyProcess {
-                process_type: "Direct".to_string(),
-                size: Some(*size),
-                row: None,
-                col: None,
-                src: None,
-                dst: None,
-                r1: None,
-                r2: None,
-                pivot_col: None,
-                row_perm: None,
-                col_perm: None,
+            } => PyProcess::Direct(ProcessDirect {
+                size: *size,
                 expected_nonzeros: expected_nonzeros.to_vec(),
-                minors: None,
-                blocks: None,
-                result: None,
-            },
+            }),
             Process::RowExpansion {
                 row,
                 minors,
                 expected_nonzeros,
-            } => PyProcess {
-                process_type: "RowExpansion".to_string(),
-                size: None,
-                row: Some(*row),
-                col: None,
-                src: None,
-                dst: None,
-                r1: None,
-                r2: None,
-                pivot_col: None,
-                row_perm: None,
-                col_perm: None,
+            } => PyProcess::RowExpansion(ProcessRowExpansion {
+                row: *row,
                 expected_nonzeros: expected_nonzeros.to_vec(),
-                minors: Some(
-                    minors
-                        .iter()
-                        .map(|(col, p)| (*col, PyProcess::from(p.as_ref())))
-                        .collect(),
-                ),
-                blocks: None,
-                result: None,
-            },
+                minors_internal: minors
+                    .iter()
+                    .map(|(col, p)| (*col, PyProcess::from(p.as_ref())))
+                    .collect(),
+            }),
             Process::ColExpansion {
                 col,
                 minors,
                 expected_nonzeros,
-            } => PyProcess {
-                process_type: "ColExpansion".to_string(),
-                size: None,
-                row: None,
-                col: Some(*col),
-                src: None,
-                dst: None,
-                r1: None,
-                r2: None,
-                pivot_col: None,
-                row_perm: None,
-                col_perm: None,
+            } => PyProcess::ColExpansion(ProcessColExpansion {
+                col: *col,
                 expected_nonzeros: expected_nonzeros.to_vec(),
-                minors: Some(
-                    minors
-                        .iter()
-                        .map(|(row, p)| (*row, PyProcess::from(p.as_ref())))
-                        .collect(),
-                ),
-                blocks: None,
-                result: None,
-            },
+                minors_internal: minors
+                    .iter()
+                    .map(|(row, p)| (*row, PyProcess::from(p.as_ref())))
+                    .collect(),
+            }),
             Process::BlockTriangular {
                 blocks,
                 row_perm,
                 col_perm,
                 expected_nonzeros,
-            } => PyProcess {
-                process_type: "BlockTriangular".to_string(),
-                size: None,
-                row: None,
-                col: None,
-                src: None,
-                dst: None,
-                r1: None,
-                r2: None,
-                pivot_col: None,
-                row_perm: Some(row_perm.clone().into_vec()),
-                col_perm: Some(col_perm.clone().into_vec()),
+            } => PyProcess::BlockTriangular(ProcessBlockTriangular {
+                row_perm: row_perm.clone().into_vec(),
+                col_perm: col_perm.clone().into_vec(),
                 expected_nonzeros: expected_nonzeros.to_vec(),
-                minors: None,
-                blocks: Some(blocks.iter().map(|p| PyProcess::from(p.as_ref())).collect()),
-                result: None,
-            },
+                blocks_internal: blocks.iter().map(|p| PyProcess::from(p.as_ref())).collect(),
+            }),
             Process::AddRow {
                 src,
                 dst,
                 pivot_col,
                 result,
                 expected_nonzeros,
-            } => PyProcess {
-                process_type: "AddRow".to_string(),
-                size: None,
-                row: None,
-                col: None,
-                src: Some(*src),
-                dst: Some(*dst),
-                r1: None,
-                r2: None,
-                pivot_col: Some(*pivot_col),
-                row_perm: None,
-                col_perm: None,
+            } => PyProcess::AddRow(ProcessAddRow {
+                src: *src,
+                dst: *dst,
+                pivot_col: *pivot_col,
                 expected_nonzeros: expected_nonzeros.to_vec(),
-                minors: None,
-                blocks: None,
-                result: Some(Box::new(PyProcess::from(result.as_ref()))),
-            },
+                result_internal: Box::new(PyProcess::from(result.as_ref())),
+            }),
         }
     }
 }
@@ -259,34 +269,26 @@ impl From<&Process> for PyProcess {
 #[pymethods]
 impl PyProcess {
     fn __repr__(&self) -> String {
-        match self.process_type.as_str() {
-            "Direct" => format!("Process::Direct(size={})", self.size.unwrap_or(0)),
-            "RowExpansion" => format!(
+        match self {
+            PyProcess::Direct(d) => format!("Process::Direct(size={})", d.size),
+            PyProcess::RowExpansion(r) => format!(
                 "Process::RowExpansion(row={}, minors={})",
-                self.row.unwrap_or(0),
-                self.minors.as_ref().map(|m| m.len()).unwrap_or(0)
+                r.row,
+                r.minors_internal.len()
             ),
-            "ColExpansion" => format!(
+            PyProcess::ColExpansion(c) => format!(
                 "Process::ColExpansion(col={}, minors={})",
-                self.col.unwrap_or(0),
-                self.minors.as_ref().map(|m| m.len()).unwrap_or(0)
+                c.col,
+                c.minors_internal.len()
             ),
-            "BlockTriangular" => format!(
+            PyProcess::BlockTriangular(b) => format!(
                 "Process::BlockTriangular(blocks={})",
-                self.blocks.as_ref().map(|b| b.len()).unwrap_or(0)
+                b.blocks_internal.len()
             ),
-            "AddRow" => format!(
+            PyProcess::AddRow(a) => format!(
                 "Process::AddRow(src={}, dst={}, pivot_col={})",
-                self.src.unwrap_or(0),
-                self.dst.unwrap_or(0),
-                self.pivot_col.unwrap_or(0)
+                a.src, a.dst, a.pivot_col
             ),
-            "SwapRows" => format!(
-                "Process::SwapRows(r1={}, r2={})",
-                self.r1.unwrap_or(0),
-                self.r2.unwrap_or(0)
-            ),
-            _ => format!("Process::Unknown({})", self.process_type),
         }
     }
 
@@ -294,92 +296,127 @@ impl PyProcess {
         self.format_tree(0)
     }
 
-    /// Get minors for RowExpansion/ColExpansion
-    /// Returns list of (index, subprocess) tuples
+    /// Get the inner data for Direct variant
     #[getter]
-    fn minors(&self) -> Option<Vec<(usize, PyProcess)>> {
-        self.minors.clone()
+    fn direct(&self) -> Option<ProcessDirect> {
+        match self {
+            PyProcess::Direct(d) => Some(d.clone()),
+            _ => None,
+        }
     }
 
-    /// Get blocks for BlockTriangular
+    /// Get the inner data for RowExpansion variant
     #[getter]
-    fn blocks(&self) -> Option<Vec<PyProcess>> {
-        self.blocks.clone()
+    fn row_expansion(&self) -> Option<ProcessRowExpansion> {
+        match self {
+            PyProcess::RowExpansion(r) => Some(r.clone()),
+            _ => None,
+        }
     }
 
-    /// Get result subprocess for AddRow/SwapRows
+    /// Get the inner data for ColExpansion variant
     #[getter]
-    fn result(&self) -> Option<PyProcess> {
-        self.result.as_ref().map(|r| (**r).clone())
+    fn col_expansion(&self) -> Option<ProcessColExpansion> {
+        match self {
+            PyProcess::ColExpansion(c) => Some(c.clone()),
+            _ => None,
+        }
+    }
+
+    /// Get the inner data for BlockTriangular variant
+    #[getter]
+    fn block_triangular(&self) -> Option<ProcessBlockTriangular> {
+        match self {
+            PyProcess::BlockTriangular(b) => Some(b.clone()),
+            _ => None,
+        }
+    }
+
+    /// Get the inner data for AddRow variant
+    #[getter]
+    fn add_row(&self) -> Option<ProcessAddRow> {
+        match self {
+            PyProcess::AddRow(a) => Some(a.clone()),
+            _ => None,
+        }
+    }
+
+    /// Get the matrix size that this process operates on
+    #[getter]
+    fn size(&self) -> usize {
+        self.compute_size()
     }
 }
 
 impl PyProcess {
     fn format_tree(&self, indent: usize) -> String {
         let prefix = "  ".repeat(indent);
-        match self.process_type.as_str() {
-            "Direct" => format!("{}Direct(size={})", prefix, self.size.unwrap_or(0)),
-            "RowExpansion" => {
-                let mut result = format!("{}RowExpansion(row={}):", prefix, self.row.unwrap_or(0));
-                if let Some(ref minors) = self.minors {
-                    for (col, subprocess) in minors {
-                        result.push_str(&format!("\n{}  col={} =>", prefix, col));
-                        result.push_str(&format!("\n{}", subprocess.format_tree(indent + 2)));
-                    }
+        match self {
+            PyProcess::Direct(d) => format!("{}Direct(size={})", prefix, d.size),
+            PyProcess::RowExpansion(r) => {
+                let mut result = format!("{}RowExpansion(row={}):", prefix, r.row);
+                for (col, subprocess) in &r.minors_internal {
+                    result.push_str(&format!("\n{}  col={} =>", prefix, col));
+                    result.push_str(&format!("\n{}", subprocess.format_tree(indent + 2)));
                 }
                 result
             }
-            "ColExpansion" => {
-                let mut result = format!("{}ColExpansion(col={}):", prefix, self.col.unwrap_or(0));
-                if let Some(ref minors) = self.minors {
-                    for (row, subprocess) in minors {
-                        result.push_str(&format!("\n{}  row={} =>", prefix, row));
-                        result.push_str(&format!("\n{}", subprocess.format_tree(indent + 2)));
-                    }
+            PyProcess::ColExpansion(c) => {
+                let mut result = format!("{}ColExpansion(col={}):", prefix, c.col);
+                for (row, subprocess) in &c.minors_internal {
+                    result.push_str(&format!("\n{}  row={} =>", prefix, row));
+                    result.push_str(&format!("\n{}", subprocess.format_tree(indent + 2)));
                 }
                 result
             }
-            "BlockTriangular" => {
-                let row_cycles = perm_to_cycles(self.row_perm.as_ref().unwrap_or(&vec![]));
-                let col_cycles = perm_to_cycles(self.col_perm.as_ref().unwrap_or(&vec![]));
+            PyProcess::BlockTriangular(b) => {
+                let row_cycles = perm_to_cycles(&b.row_perm);
+                let col_cycles = perm_to_cycles(&b.col_perm);
                 let mut result = format!(
                     "{}BlockTriangular(row_perm={}, col_perm={}):",
                     prefix, row_cycles, col_cycles
                 );
-                if let Some(ref blocks) = self.blocks {
-                    for (i, block) in blocks.iter().enumerate() {
-                        result.push_str(&format!("\n{}  block[{}] =>", prefix, i));
-                        result.push_str(&format!("\n{}", block.format_tree(indent + 2)));
-                    }
+                for (i, block) in b.blocks_internal.iter().enumerate() {
+                    result.push_str(&format!("\n{}  block[{}] =>", prefix, i));
+                    result.push_str(&format!("\n{}", block.format_tree(indent + 2)));
                 }
                 result
             }
-            "AddRow" => {
+            PyProcess::AddRow(a) => {
                 let mut result = format!(
                     "{}AddRow(src={}, dst={}, pivot_col={}):",
-                    prefix,
-                    self.src.unwrap_or(0),
-                    self.dst.unwrap_or(0),
-                    self.pivot_col.unwrap_or(0)
+                    prefix, a.src, a.dst, a.pivot_col
                 );
-                if let Some(ref subprocess) = self.result {
-                    result.push_str(&format!("\n{}", subprocess.format_tree(indent + 1)));
-                }
+                result.push_str(&format!("\n{}", a.result_internal.format_tree(indent + 1)));
                 result
             }
-            "SwapRows" => {
-                let mut result = format!(
-                    "{}SwapRows(r1={}, r2={}):",
-                    prefix,
-                    self.r1.unwrap_or(0),
-                    self.r2.unwrap_or(0)
-                );
-                if let Some(ref subprocess) = self.result {
-                    result.push_str(&format!("\n{}", subprocess.format_tree(indent + 1)));
+        }
+    }
+
+    /// Compute the matrix size that this process operates on
+    fn compute_size(&self) -> usize {
+        match self {
+            PyProcess::Direct(d) => d.size,
+            PyProcess::RowExpansion(r) => {
+                if let Some((_, first_minor)) = r.minors_internal.first() {
+                    1 + first_minor.compute_size()
+                } else {
+                    1
                 }
-                result
             }
-            _ => format!("{}Unknown({})", prefix, self.process_type),
+            PyProcess::ColExpansion(c) => {
+                if let Some((_, first_minor)) = c.minors_internal.first() {
+                    1 + first_minor.compute_size()
+                } else {
+                    1
+                }
+            }
+            PyProcess::BlockTriangular(b) => b
+                .blocks_internal
+                .iter()
+                .map(|block| block.compute_size())
+                .sum(),
+            PyProcess::AddRow(a) => a.result_internal.compute_size(),
         }
     }
 }
@@ -533,6 +570,11 @@ fn linalg_helper(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<CanonicalForm>()?;
     m.add_class::<PyCost>()?;
     m.add_class::<PyProcess>()?;
+    m.add_class::<ProcessDirect>()?;
+    m.add_class::<ProcessRowExpansion>()?;
+    m.add_class::<ProcessColExpansion>()?;
+    m.add_class::<ProcessBlockTriangular>()?;
+    m.add_class::<ProcessAddRow>()?;
     m.add_class::<OptimalProcessResult>()?;
     Ok(())
 }
