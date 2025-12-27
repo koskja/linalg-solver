@@ -20,7 +20,10 @@ mod tests;
 
 pub use adjacency::{AdjacencyMatrix, Matching};
 pub use canonical::{CanonicalForm, are_permutation_equivalent, canonicalize};
-pub use determinant::{Cost, Process, find_optimal_process};
+pub use determinant::{
+    AddRow, BlockTriangular, ColExpansion, Cost, Direct, Process, RawProcess, RowExpansion,
+    find_optimal_process,
+};
 pub use dm::{DMResult, dulmage_mendelsohn};
 pub use hopcroft_karp::hopcroft_karp;
 pub use tarjan::tarjan_scc;
@@ -206,60 +209,52 @@ pub enum PyProcess {
 
 impl From<&Process> for PyProcess {
     fn from(process: &Process) -> Self {
-        match process {
-            Process::Direct {
-                size,
-                expected_nonzeros,
-            } => PyProcess::Direct(ProcessDirect {
+        let expected_nonzeros = process.expected_nonzeros.to_vec();
+        match &process.raw {
+            RawProcess::Direct(Direct { size }) => PyProcess::Direct(ProcessDirect {
                 size: *size,
-                expected_nonzeros: expected_nonzeros.to_vec(),
-            }),
-            Process::RowExpansion {
-                row,
-                minors,
                 expected_nonzeros,
-            } => PyProcess::RowExpansion(ProcessRowExpansion {
-                row: *row,
-                expected_nonzeros: expected_nonzeros.to_vec(),
-                minors_internal: minors
-                    .iter()
-                    .map(|(col, p)| (*col, PyProcess::from(p.as_ref())))
-                    .collect(),
             }),
-            Process::ColExpansion {
-                col,
-                minors,
-                expected_nonzeros,
-            } => PyProcess::ColExpansion(ProcessColExpansion {
-                col: *col,
-                expected_nonzeros: expected_nonzeros.to_vec(),
-                minors_internal: minors
-                    .iter()
-                    .map(|(row, p)| (*row, PyProcess::from(p.as_ref())))
-                    .collect(),
-            }),
-            Process::BlockTriangular {
+            RawProcess::RowExpansion(RowExpansion { row, minors }) => {
+                PyProcess::RowExpansion(ProcessRowExpansion {
+                    row: *row,
+                    expected_nonzeros,
+                    minors_internal: minors
+                        .iter()
+                        .map(|(col, p)| (*col, PyProcess::from(p.as_ref())))
+                        .collect(),
+                })
+            }
+            RawProcess::ColExpansion(ColExpansion { col, minors }) => {
+                PyProcess::ColExpansion(ProcessColExpansion {
+                    col: *col,
+                    expected_nonzeros,
+                    minors_internal: minors
+                        .iter()
+                        .map(|(row, p)| (*row, PyProcess::from(p.as_ref())))
+                        .collect(),
+                })
+            }
+            RawProcess::BlockTriangular(BlockTriangular {
                 blocks,
                 row_perm,
                 col_perm,
-                expected_nonzeros,
-            } => PyProcess::BlockTriangular(ProcessBlockTriangular {
+            }) => PyProcess::BlockTriangular(ProcessBlockTriangular {
                 row_perm: row_perm.clone().into_vec(),
                 col_perm: col_perm.clone().into_vec(),
-                expected_nonzeros: expected_nonzeros.to_vec(),
+                expected_nonzeros,
                 blocks_internal: blocks.iter().map(|p| PyProcess::from(p.as_ref())).collect(),
             }),
-            Process::AddRow {
+            RawProcess::AddRow(AddRow {
                 src,
                 dst,
                 pivot_col,
                 result,
-                expected_nonzeros,
-            } => PyProcess::AddRow(ProcessAddRow {
+            }) => PyProcess::AddRow(ProcessAddRow {
                 src: *src,
                 dst: *dst,
                 pivot_col: *pivot_col,
-                expected_nonzeros: expected_nonzeros.to_vec(),
+                expected_nonzeros,
                 result_internal: Box::new(PyProcess::from(result.as_ref())),
             }),
         }

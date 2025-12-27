@@ -19,58 +19,67 @@ fn build_nonzeros(matrix: &AdjacencyMatrix) -> Nonzeros {
     Nonzeros::from_fn(matrix.rows, matrix.cols, |r, c| matrix.get(r, c))
 }
 
+/// Base case: direct computation (n <= 2)
+#[derive(Clone, Debug)]
+pub struct Direct {
+    pub size: usize,
+}
+
+/// Laplace expansion along a row
+#[derive(Clone, Debug)]
+pub struct RowExpansion {
+    pub row: usize,
+    /// (column_index, subprocess) for each non-zero entry
+    pub minors: Vec<(usize, Rc<Process>)>,
+}
+
+/// Laplace expansion along a column
+#[derive(Clone, Debug)]
+pub struct ColExpansion {
+    pub col: usize,
+    /// (row_index, subprocess) for each non-zero entry
+    pub minors: Vec<(usize, Rc<Process>)>,
+}
+
+/// Block triangular decomposition (det = product of block dets)
+#[derive(Clone, Debug)]
+pub struct BlockTriangular {
+    /// Processes for each diagonal block
+    pub blocks: Vec<Rc<Process>>,
+    /// Row permutation to achieve block form
+    pub row_perm: Permutation,
+    /// Column permutation to achieve block form
+    pub col_perm: Permutation,
+}
+
+/// Single row operation: add row `src` (scaled) to row `dst` to zero out (dst, pivot_col)
+/// det(original) = det(after_operation), so cost is just the additions + subprocess
+#[derive(Clone, Debug)]
+pub struct AddRow {
+    pub src: usize,
+    pub dst: usize,
+    /// Column where dst has a non-zero that we're eliminating
+    pub pivot_col: usize,
+    /// Process for the resulting matrix (with one more zero)
+    pub result: Rc<Process>,
+}
+
+/// Raw process variant without the expected nonzeros
+#[derive(Clone, Debug)]
+pub enum RawProcess {
+    Direct(Direct),
+    RowExpansion(RowExpansion),
+    ColExpansion(ColExpansion),
+    BlockTriangular(BlockTriangular),
+    AddRow(AddRow),
+}
+
 /// Represents a computation strategy for calculating a determinant
 #[derive(Clone, Debug)]
-pub enum Process {
-    /// Base case: direct computation (n <= 2)
-    Direct {
-        size: usize,
-        /// Expected non-zero positions (row, col) in the matrix
-        expected_nonzeros: Nonzeros,
-    },
-
-    /// Laplace expansion along a row
-    RowExpansion {
-        row: usize,
-        /// (column_index, subprocess) for each non-zero entry
-        minors: Vec<(usize, Rc<Process>)>,
-        /// Expected non-zero positions (row, col) in the matrix
-        expected_nonzeros: Nonzeros,
-    },
-
-    /// Laplace expansion along a column
-    ColExpansion {
-        col: usize,
-        /// (row_index, subprocess) for each non-zero entry
-        minors: Vec<(usize, Rc<Process>)>,
-        /// Expected non-zero positions (row, col) in the matrix
-        expected_nonzeros: Nonzeros,
-    },
-
-    /// Block triangular decomposition (det = product of block dets)
-    BlockTriangular {
-        /// Processes for each diagonal block
-        blocks: Vec<Rc<Process>>,
-        /// Row permutation to achieve block form
-        row_perm: Permutation,
-        /// Column permutation to achieve block form
-        col_perm: Permutation,
-        /// Expected non-zero positions (row, col) in the matrix
-        expected_nonzeros: Nonzeros,
-    },
-
-    /// Single row operation: add row `src` (scaled) to row `dst` to zero out (dst, pivot_col)
-    /// det(original) = det(after_operation), so cost is just the additions + subprocess
-    AddRow {
-        src: usize,
-        dst: usize,
-        /// Column where dst has a non-zero that we're eliminating
-        pivot_col: usize,
-        /// Process for the resulting matrix (with one more zero)
-        result: Rc<Process>,
-        /// Expected non-zero positions (row, col) in the matrix
-        expected_nonzeros: Nonzeros,
-    },
+pub struct Process {
+    pub raw: RawProcess,
+    /// Expected non-zero positions (row, col) in the matrix
+    pub expected_nonzeros: Nonzeros,
 }
 
 /// Cost of a computation strategy
@@ -164,8 +173,8 @@ fn find_optimal_process_cached(
     if n <= 2 {
         return (
             direct_cost(n),
-            Process::Direct {
-                size: n,
+            Process {
+                raw: RawProcess::Direct(Direct { size: n }),
                 expected_nonzeros: get_nonzeros(matrix),
             },
         );
@@ -187,8 +196,8 @@ fn find_optimal_process_cached(
         canon.canonical_hash,
         (
             direct_cost(n),
-            Process::Direct {
-                size: n,
+            Process {
+                raw: RawProcess::Direct(Direct { size: n }),
                 expected_nonzeros: canonical_nonzeros,
             },
         ),
@@ -229,8 +238,8 @@ fn find_optimal_process_cached(
     let result = best.unwrap_or_else(|| {
         (
             direct_cost(n),
-            Process::Direct {
-                size: n,
+            Process {
+                raw: RawProcess::Direct(Direct { size: n }),
                 expected_nonzeros: get_nonzeros(matrix),
             },
         )
@@ -293,10 +302,12 @@ where
 
     update_best(
         total_cost,
-        Process::BlockTriangular {
-            blocks,
-            row_perm: dm.row_perm.clone(),
-            col_perm: dm.col_perm.clone(),
+        Process {
+            raw: RawProcess::BlockTriangular(BlockTriangular {
+                blocks,
+                row_perm: dm.row_perm.clone(),
+                col_perm: dm.col_perm.clone(),
+            }),
             expected_nonzeros: get_nonzeros(matrix),
         },
     );
@@ -318,8 +329,8 @@ fn try_row_expansion<F>(
     if nonzero_cols.is_empty() {
         update_best(
             Cost::zero(),
-            Process::Direct {
-                size: n,
+            Process {
+                raw: RawProcess::Direct(Direct { size: n }),
                 expected_nonzeros: get_nonzeros(matrix),
             },
         );
@@ -350,9 +361,8 @@ fn try_row_expansion<F>(
 
     update_best(
         total_cost,
-        Process::RowExpansion {
-            row,
-            minors,
+        Process {
+            raw: RawProcess::RowExpansion(RowExpansion { row, minors }),
             expected_nonzeros: get_nonzeros(matrix),
         },
     );
@@ -374,8 +384,8 @@ fn try_col_expansion<F>(
     if nonzero_rows.is_empty() {
         update_best(
             Cost::zero(),
-            Process::Direct {
-                size: n,
+            Process {
+                raw: RawProcess::Direct(Direct { size: n }),
                 expected_nonzeros: get_nonzeros(matrix),
             },
         );
@@ -406,9 +416,8 @@ fn try_col_expansion<F>(
 
     update_best(
         total_cost,
-        Process::ColExpansion {
-            col,
-            minors,
+        Process {
+            raw: RawProcess::ColExpansion(ColExpansion { col, minors }),
             expected_nonzeros: get_nonzeros(matrix),
         },
     );
@@ -461,11 +470,13 @@ fn try_add_row_operations<F>(
 
                 update_best(
                     total_cost,
-                    Process::AddRow {
-                        src,
-                        dst,
-                        pivot_col,
-                        result: Rc::new(sub_proc),
+                    Process {
+                        raw: RawProcess::AddRow(AddRow {
+                            src,
+                            dst,
+                            pivot_col,
+                            result: Rc::new(sub_proc),
+                        }),
                         expected_nonzeros: get_nonzeros(matrix),
                     },
                 );
@@ -492,55 +503,42 @@ fn remap_nonzeros(nonzeros: &Nonzeros, inv_row: &[usize], inv_col: &[usize]) -> 
 }
 
 fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize]) -> Process {
-    match process {
-        Process::Direct {
-            size,
-            expected_nonzeros,
-        } => Process::Direct {
-            size: *size,
-            expected_nonzeros: remap_nonzeros(expected_nonzeros, inv_row, inv_col),
-        },
-        Process::RowExpansion {
-            row,
-            minors,
-            expected_nonzeros,
-        } => Process::RowExpansion {
-            row: inv_row.get(*row).copied().unwrap_or(*row),
-            minors: minors
-                .iter()
-                .map(|(col, p)| {
-                    (
-                        inv_col.get(*col).copied().unwrap_or(*col),
-                        Rc::new(remap_process_with_inv(p, inv_row, inv_col)),
-                    )
-                })
-                .collect(),
-            expected_nonzeros: remap_nonzeros(expected_nonzeros, inv_row, inv_col),
-        },
-        Process::ColExpansion {
-            col,
-            minors,
-            expected_nonzeros,
-        } => Process::ColExpansion {
-            col: inv_col.get(*col).copied().unwrap_or(*col),
-            minors: minors
-                .iter()
-                .map(|(row, p)| {
-                    (
-                        inv_row.get(*row).copied().unwrap_or(*row),
-                        Rc::new(remap_process_with_inv(p, inv_row, inv_col)),
-                    )
-                })
-                .collect(),
-            expected_nonzeros: remap_nonzeros(expected_nonzeros, inv_row, inv_col),
-        },
-        Process::BlockTriangular {
+    let raw = match &process.raw {
+        RawProcess::Direct(Direct { size }) => RawProcess::Direct(Direct { size: *size }),
+        RawProcess::RowExpansion(RowExpansion { row, minors }) => {
+            RawProcess::RowExpansion(RowExpansion {
+                row: inv_row.get(*row).copied().unwrap_or(*row),
+                minors: minors
+                    .iter()
+                    .map(|(col, p)| {
+                        (
+                            inv_col.get(*col).copied().unwrap_or(*col),
+                            Rc::new(remap_process_with_inv(p, inv_row, inv_col)),
+                        )
+                    })
+                    .collect(),
+            })
+        }
+        RawProcess::ColExpansion(ColExpansion { col, minors }) => {
+            RawProcess::ColExpansion(ColExpansion {
+                col: inv_col.get(*col).copied().unwrap_or(*col),
+                minors: minors
+                    .iter()
+                    .map(|(row, p)| {
+                        (
+                            inv_row.get(*row).copied().unwrap_or(*row),
+                            Rc::new(remap_process_with_inv(p, inv_row, inv_col)),
+                        )
+                    })
+                    .collect(),
+            })
+        }
+        RawProcess::BlockTriangular(BlockTriangular {
             blocks,
             row_perm,
             col_perm,
-            expected_nonzeros,
-        } => Process::BlockTriangular {
-            blocks: blocks.iter().map(|p| p.clone()).collect(),
+        }) => RawProcess::BlockTriangular(BlockTriangular {
+            blocks: blocks.iter().cloned().collect(),
             row_perm: row_perm
                 .iter()
                 .map(|&r| inv_row.get(r).copied().unwrap_or(r))
@@ -549,21 +547,22 @@ fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize
                 .iter()
                 .map(|&c| inv_col.get(c).copied().unwrap_or(c))
                 .collect(),
-            expected_nonzeros: remap_nonzeros(expected_nonzeros, inv_row, inv_col),
-        },
-        Process::AddRow {
+        }),
+        RawProcess::AddRow(AddRow {
             src,
             dst,
             pivot_col,
             result,
-            expected_nonzeros,
-        } => Process::AddRow {
+        }) => RawProcess::AddRow(AddRow {
             src: inv_row.get(*src).copied().unwrap_or(*src),
             dst: inv_row.get(*dst).copied().unwrap_or(*dst),
             pivot_col: inv_col.get(*pivot_col).copied().unwrap_or(*pivot_col),
             result: Rc::new(remap_process_with_inv(result, inv_row, inv_col)),
-            expected_nonzeros: remap_nonzeros(expected_nonzeros, inv_row, inv_col),
-        },
+        }),
+    };
+    Process {
+        raw,
+        expected_nonzeros: remap_nonzeros(&process.expected_nonzeros, inv_row, inv_col),
     }
 }
 
@@ -575,22 +574,12 @@ fn canonicalize_nonzeros(nonzeros: &Nonzeros, row_perm: &[usize], col_perm: &[us
 fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize]) -> Process {
     // row_perm[canonical_idx] = original_idx
     // So to go from original to canonical, we use the permutation directly
-    match process {
-        Process::Direct {
-            size,
-            expected_nonzeros,
-        } => Process::Direct {
-            size: *size,
-            expected_nonzeros: canonicalize_nonzeros(expected_nonzeros, row_perm, col_perm),
-        },
-        Process::RowExpansion {
-            row,
-            minors,
-            expected_nonzeros,
-        } => {
+    let raw = match &process.raw {
+        RawProcess::Direct(Direct { size }) => RawProcess::Direct(Direct { size: *size }),
+        RawProcess::RowExpansion(RowExpansion { row, minors }) => {
             // Find canonical index for this row
             let canon_row = row_perm.iter().position(|&r| r == *row).unwrap_or(*row);
-            Process::RowExpansion {
+            RawProcess::RowExpansion(RowExpansion {
                 row: canon_row,
                 minors: minors
                     .iter()
@@ -602,16 +591,11 @@ fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize
                         )
                     })
                     .collect(),
-                expected_nonzeros: canonicalize_nonzeros(expected_nonzeros, row_perm, col_perm),
-            }
+            })
         }
-        Process::ColExpansion {
-            col,
-            minors,
-            expected_nonzeros,
-        } => {
+        RawProcess::ColExpansion(ColExpansion { col, minors }) => {
             let canon_col = col_perm.iter().position(|&c| c == *col).unwrap_or(*col);
-            Process::ColExpansion {
+            RawProcess::ColExpansion(ColExpansion {
                 col: canon_col,
                 minors: minors
                     .iter()
@@ -623,16 +607,14 @@ fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize
                         )
                     })
                     .collect(),
-                expected_nonzeros: canonicalize_nonzeros(expected_nonzeros, row_perm, col_perm),
-            }
+            })
         }
-        Process::BlockTriangular {
+        RawProcess::BlockTriangular(BlockTriangular {
             blocks,
             row_perm: block_row_perm,
             col_perm: block_col_perm,
-            expected_nonzeros,
-        } => Process::BlockTriangular {
-            blocks: blocks.iter().map(|p| p.clone()).collect(),
+        }) => RawProcess::BlockTriangular(BlockTriangular {
+            blocks: blocks.iter().cloned().collect(),
             row_perm: block_row_perm
                 .iter()
                 .map(|&r| row_perm.iter().position(|&pr| pr == r).unwrap_or(r))
@@ -641,29 +623,30 @@ fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize
                 .iter()
                 .map(|&c| col_perm.iter().position(|&pc| pc == c).unwrap_or(c))
                 .collect(),
-            expected_nonzeros: canonicalize_nonzeros(expected_nonzeros, row_perm, col_perm),
-        },
-        Process::AddRow {
+        }),
+        RawProcess::AddRow(AddRow {
             src,
             dst,
             pivot_col,
             result,
-            expected_nonzeros,
-        } => {
+        }) => {
             let canon_src = row_perm.iter().position(|&r| r == *src).unwrap_or(*src);
             let canon_dst = row_perm.iter().position(|&r| r == *dst).unwrap_or(*dst);
             let canon_pivot = col_perm
                 .iter()
                 .position(|&c| c == *pivot_col)
                 .unwrap_or(*pivot_col);
-            Process::AddRow {
+            RawProcess::AddRow(AddRow {
                 src: canon_src,
                 dst: canon_dst,
                 pivot_col: canon_pivot,
                 result: Rc::new(canonicalize_process(result, row_perm, col_perm)),
-                expected_nonzeros: canonicalize_nonzeros(expected_nonzeros, row_perm, col_perm),
-            }
+            })
         }
+    };
+    Process {
+        raw,
+        expected_nonzeros: canonicalize_nonzeros(&process.expected_nonzeros, row_perm, col_perm),
     }
 }
 
@@ -680,7 +663,7 @@ mod tests {
         let m = make_matrix(vec![vec![true]]);
         let (cost, proc) = find_optimal_process(&m);
         assert_eq!(cost.total(), 0);
-        assert!(matches!(proc, Process::Direct { size: 1, .. }));
+        assert!(matches!(proc.raw, RawProcess::Direct(Direct { size: 1 })));
     }
 
     #[test]
@@ -688,7 +671,7 @@ mod tests {
         let m = make_matrix(vec![vec![true, true], vec![true, true]]);
         let (cost, proc) = find_optimal_process(&m);
         assert_eq!(cost.total(), 3); // 2 mults + 1 add
-        assert!(matches!(proc, Process::Direct { size: 2, .. }));
+        assert!(matches!(proc.raw, RawProcess::Direct(Direct { size: 2 })));
     }
 
     #[test]
@@ -703,7 +686,7 @@ mod tests {
         // Diagonal: det = a * b * c = 2 mults, 0 adds
         assert_eq!(cost.multiplications, 2);
         assert_eq!(cost.additions, 0);
-        assert!(matches!(proc, Process::BlockTriangular { .. }));
+        assert!(matches!(proc.raw, RawProcess::BlockTriangular(_)));
     }
 
     #[test]
@@ -719,10 +702,10 @@ mod tests {
         // Expected: block triangular with 3 blocks of size 1, cost = 2 mults
         assert!(cost.total() <= 5);
         // Either block triangular or row expansion along row 0
-        match proc {
-            Process::BlockTriangular { .. } => {}
-            Process::RowExpansion { row, .. } if row == 0 => {}
-            Process::ColExpansion { col, .. } if col == 2 => {}
+        match &proc.raw {
+            RawProcess::BlockTriangular(_) => {}
+            RawProcess::RowExpansion(RowExpansion { row, .. }) if *row == 0 => {}
+            RawProcess::ColExpansion(ColExpansion { col, .. }) if *col == 2 => {}
             _ => {} // Other valid strategies are acceptable
         }
     }
@@ -739,7 +722,7 @@ mod tests {
         let (cost, proc) = find_optimal_process(&m);
         // Should find block triangular: 2 blocks of 2x2
         // Each 2x2 costs 3, plus 1 mult to combine = 7
-        assert!(matches!(proc, Process::BlockTriangular { .. }));
+        assert!(matches!(proc.raw, RawProcess::BlockTriangular(_)));
         assert_eq!(cost.total(), 7);
     }
 
@@ -757,10 +740,8 @@ mod tests {
         // Or with AddRow we might do better
         assert!(cost.total() <= 14);
         // Should use some expansion strategy
-        match proc {
-            Process::RowExpansion { .. }
-            | Process::ColExpansion { .. }
-            | Process::AddRow { .. } => {}
+        match &proc.raw {
+            RawProcess::RowExpansion(_) | RawProcess::ColExpansion(_) | RawProcess::AddRow(_) => {}
             _ => panic!("Expected expansion or row operation for full matrix"),
         }
     }
