@@ -7,9 +7,9 @@ use std::collections::{HashSet, VecDeque};
 
 use pyo3::prelude::*;
 
-use crate::Permutation;
 use crate::adjacency::{AdjacencyMatrix, Matching};
 use crate::hopcroft_karp::hopcroft_karp;
+use crate::permutation::Permutation;
 use crate::tarjan::tarjan_scc;
 
 /// Result of the Dulmage-Mendelsohn decomposition
@@ -25,22 +25,36 @@ pub struct DMResult {
     pub block_sizes: Vec<usize>,
 }
 
+impl DMResult {
+    /// Get the row permutation.
+    pub fn row_perm(&self) -> &Permutation {
+        &self.row_perm
+    }
+
+    /// Get the column permutation.
+    pub fn col_perm(&self) -> &Permutation {
+        &self.col_perm
+    }
+}
+
 #[pymethods]
 impl DMResult {
     #[getter]
-    fn row_perm(&self) -> Vec<usize> {
-        self.row_perm.as_slice().to_vec()
+    fn row_perm_py(&self) -> Vec<usize> {
+        self.row_perm.to_vec()
     }
 
     #[getter]
-    fn col_perm(&self) -> Vec<usize> {
-        self.col_perm.as_slice().to_vec()
+    fn col_perm_py(&self) -> Vec<usize> {
+        self.col_perm.to_vec()
     }
 
     fn __repr__(&self) -> String {
         format!(
             "DMResult(row_perm={:?}, col_perm={:?}, block_sizes={:?})",
-            self.row_perm, self.col_perm, self.block_sizes
+            self.row_perm.as_slice(),
+            self.col_perm.as_slice(),
+            self.block_sizes
         )
     }
 
@@ -142,8 +156,8 @@ pub fn dulmage_mendelsohn(graph: &AdjacencyMatrix) -> DMResult {
 
     if rows == 0 || cols == 0 {
         return DMResult {
-            row_perm: (0..rows).collect(),
-            col_perm: (0..cols).collect(),
+            row_perm: Permutation::identity(rows),
+            col_perm: Permutation::identity(cols),
             block_sizes: vec![],
         };
     }
@@ -248,8 +262,8 @@ pub fn dulmage_mendelsohn(graph: &AdjacencyMatrix) -> DMResult {
     let normalized_blocks = normalize_block_order(graph, &matching, blocks);
 
     // Build final permutations
-    let mut row_perm: Permutation = Permutation::with_capacity(rows);
-    let mut col_perm: Permutation = Permutation::with_capacity(cols);
+    let mut row_perm_vec: Vec<usize> = Vec::with_capacity(rows);
+    let mut col_perm_vec: Vec<usize> = Vec::with_capacity(cols);
     let mut block_sizes = Vec::new();
 
     for (pairs, _) in normalized_blocks {
@@ -258,19 +272,23 @@ pub fn dulmage_mendelsohn(graph: &AdjacencyMatrix) -> DMResult {
         }
         block_sizes.push(pairs.len());
         for (r, c) in pairs {
-            row_perm.push(r);
-            col_perm.push(c);
+            row_perm_vec.push(r);
+            col_perm_vec.push(c);
         }
     }
 
     // Handle case where permutations are incomplete (shouldn't happen with correct algorithm)
     // but ensure we have valid permutations
-    if row_perm.len() != rows {
-        row_perm = (0..rows).collect();
-    }
-    if col_perm.len() != cols {
-        col_perm = (0..cols).collect();
-    }
+    let row_perm = if row_perm_vec.len() != rows {
+        Permutation::identity(rows)
+    } else {
+        Permutation::from_vec_unchecked(row_perm_vec)
+    };
+    let col_perm = if col_perm_vec.len() != cols {
+        Permutation::identity(cols)
+    } else {
+        Permutation::from_vec_unchecked(col_perm_vec)
+    };
 
     DMResult {
         row_perm,
@@ -385,12 +403,12 @@ mod tests {
         ]));
         // Row and column permutations should be identity [0, 1, 2]
         assert_eq!(
-            result.row_perm.as_slice(),
+            result.row_perm().as_slice(),
             &[0, 1, 2],
             "Row permutation should be identity"
         );
         assert_eq!(
-            result.col_perm.as_slice(),
+            result.col_perm().as_slice(),
             &[0, 1, 2],
             "Column permutation should be identity"
         );
@@ -407,12 +425,12 @@ mod tests {
         ]));
         // Permutations should be identity [0, 1, 2, 3] since blocks are already in order
         assert_eq!(
-            result.row_perm.as_slice(),
+            result.row_perm().as_slice(),
             &[0, 1, 2, 3],
             "Row permutation should be identity for block diagonal"
         );
         assert_eq!(
-            result.col_perm.as_slice(),
+            result.col_perm().as_slice(),
             &[0, 1, 2, 3],
             "Column permutation should be identity for block diagonal"
         );
@@ -435,12 +453,12 @@ mod tests {
         // Lower triangular → upper triangular requires reversing order
         // This is correct behavior - blocks must respect topological order
         assert_eq!(
-            result.row_perm.as_slice(),
+            result.row_perm().as_slice(),
             &[2, 1, 0],
             "Lower triangular needs reverse order for upper block form"
         );
         assert_eq!(
-            result.col_perm.as_slice(),
+            result.col_perm().as_slice(),
             &[2, 1, 0],
             "Lower triangular needs reverse order for upper block form"
         );
@@ -456,12 +474,12 @@ mod tests {
         ]));
         // Upper triangular is already in the right form - identity permutation
         assert_eq!(
-            result.row_perm.as_slice(),
+            result.row_perm().as_slice(),
             &[0, 1, 2],
             "Row permutation should be identity for upper triangular"
         );
         assert_eq!(
-            result.col_perm.as_slice(),
+            result.col_perm().as_slice(),
             &[0, 1, 2],
             "Column permutation should be identity for upper triangular"
         );
@@ -479,12 +497,12 @@ mod tests {
         // Even if internally the algorithm finds elements in different order,
         // the normalization should produce identity
         assert_eq!(
-            result.row_perm.as_slice(),
+            result.row_perm().as_slice(),
             &[0, 1, 2],
             "Should normalize to identity"
         );
         assert_eq!(
-            result.col_perm.as_slice(),
+            result.col_perm().as_slice(),
             &[0, 1, 2],
             "Should normalize to identity"
         );

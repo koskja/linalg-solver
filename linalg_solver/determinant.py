@@ -433,7 +433,7 @@ def _execute_block_triangular(
         submatrix_items = _build_submatrix_items(matrix, rows, cols)
 
         rc = RowColPermutation(row_perm, col_perm)
-        perm, t = rc.try_tranpose()
+        perm, t = rc.try_transpose()
         rp, cp = perm.to_rows_cols_permutations()
 
         steps = []

@@ -9,11 +9,11 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::Permutation;
 use crate::adjacency::AdjacencyMatrix;
 use crate::canonical::canonicalize;
 use crate::dm::dulmage_mendelsohn;
 use crate::nonzeros::Nonzeros;
+use crate::permutation::Permutation;
 
 fn build_nonzeros(matrix: &AdjacencyMatrix) -> Nonzeros {
     Nonzeros::from_fn(matrix.rows, matrix.cols, |r, c| matrix.get(r, c))
@@ -184,14 +184,19 @@ fn find_optimal_process_cached(
     let canon = canonicalize(matrix);
     if let Some(cached) = cache.get(&canon.canonical_hash) {
         // Remap the cached process to use original indices
-        let remapped = remap_process(&cached.1, &canon.row_perm, &canon.col_perm);
+        let remapped = remap_process(
+            &cached.1,
+            canon.row_perm().as_slice(),
+            canon.col_perm().as_slice(),
+        );
         return (cached.0, remapped);
     }
 
     // Insert a sentinel to prevent infinite recursion
     // This uses direct cost as a fallback if we encounter a cycle
     // Note: We store canonical nonzeros (indices 0..n) as this is for the cached canonical form
-    let canonical_nonzeros = build_nonzeros(matrix).permute_inv(&canon.row_perm, &canon.col_perm);
+    let canonical_nonzeros = build_nonzeros(matrix)
+        .permute_inv(canon.row_perm().as_slice(), canon.col_perm().as_slice());
     cache.insert(
         canon.canonical_hash,
         (
@@ -246,7 +251,11 @@ fn find_optimal_process_cached(
     });
 
     // Cache the result (in canonical form)
-    let canonical_process = canonicalize_process(&result.1, &canon.row_perm, &canon.col_perm);
+    let canonical_process = canonicalize_process(
+        &result.1,
+        canon.row_perm().as_slice(),
+        canon.col_perm().as_slice(),
+    );
     cache.insert(canon.canonical_hash, (result.0, canonical_process));
 
     result
@@ -268,7 +277,7 @@ where
     // (block sizes should sum to n, and permutations should be valid)
     let n = matrix.rows;
     let total_block_size: usize = dm.block_sizes.iter().sum();
-    if total_block_size != n || dm.row_perm.len() != n || dm.col_perm.len() != n {
+    if total_block_size != n || dm.row_perm().len() != n || dm.col_perm().len() != n {
         // Invalid decomposition for a square matrix, skip
         return;
     }
@@ -284,8 +293,8 @@ where
         }
 
         // Extract block rows and columns
-        let block_rows: Vec<usize> = dm.row_perm[offset..offset + block_size].to_vec();
-        let block_cols: Vec<usize> = dm.col_perm[offset..offset + block_size].to_vec();
+        let block_rows: Vec<usize> = dm.row_perm().as_slice()[offset..offset + block_size].to_vec();
+        let block_cols: Vec<usize> = dm.col_perm().as_slice()[offset..offset + block_size].to_vec();
 
         let block_matrix = matrix.submatrix(&block_rows, &block_cols);
         let (block_cost, block_proc) = find_optimal_process_cached(&block_matrix, cache);
@@ -305,8 +314,8 @@ where
         Process {
             raw: RawProcess::BlockTriangular(BlockTriangular {
                 blocks,
-                row_perm: dm.row_perm.clone(),
-                col_perm: dm.col_perm.clone(),
+                row_perm: dm.row_perm().clone(),
+                col_perm: dm.col_perm().clone(),
             }),
             expected_nonzeros: get_nonzeros(matrix),
         },

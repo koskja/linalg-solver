@@ -4,7 +4,6 @@
 //! exposed to Python via PyO3.
 
 use pyo3::prelude::*;
-use smallvec::SmallVec;
 
 mod adjacency;
 mod bitlist;
@@ -13,6 +12,7 @@ mod determinant;
 mod dm;
 mod hopcroft_karp;
 mod nonzeros;
+mod permutation;
 mod tarjan;
 
 #[cfg(test)]
@@ -26,11 +26,11 @@ pub use determinant::{
 };
 pub use dm::{DMResult, dulmage_mendelsohn};
 pub use hopcroft_karp::hopcroft_karp;
+pub use permutation::{Permutation, RowColPermutation};
 pub use tarjan::tarjan_scc;
 
 pub type MatrixIndex = usize;
 pub const INLINE_PERM_CAPACITY: usize = 16;
-pub type Permutation = SmallVec<[MatrixIndex; INLINE_PERM_CAPACITY]>;
 
 /// Compute the Dulmage-Mendelsohn decomposition of a matrix.
 ///
@@ -240,8 +240,8 @@ impl From<&Process> for PyProcess {
                 row_perm,
                 col_perm,
             }) => PyProcess::BlockTriangular(ProcessBlockTriangular {
-                row_perm: row_perm.clone().into_vec(),
-                col_perm: col_perm.clone().into_vec(),
+                row_perm: row_perm.to_vec(),
+                col_perm: col_perm.to_vec(),
                 expected_nonzeros,
                 blocks_internal: blocks.iter().map(|p| PyProcess::from(p.as_ref())).collect(),
             }),
@@ -571,5 +571,7 @@ fn linalg_helper(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ProcessBlockTriangular>()?;
     m.add_class::<ProcessAddRow>()?;
     m.add_class::<OptimalProcessResult>()?;
+    m.add_class::<Permutation>()?;
+    m.add_class::<RowColPermutation>()?;
     Ok(())
 }

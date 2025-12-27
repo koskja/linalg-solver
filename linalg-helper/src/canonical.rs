@@ -10,9 +10,9 @@ use std::collections::{BTreeMap, HashMap};
 
 use pyo3::prelude::*;
 
-use crate::Permutation;
 use crate::adjacency::AdjacencyMatrix;
 use crate::bitlist::BitList;
+use crate::permutation::Permutation;
 
 /// Result of matrix canonicalization
 #[pyclass]
@@ -27,22 +27,36 @@ pub struct CanonicalForm {
     pub canonical_hash: u64,
 }
 
+impl CanonicalForm {
+    /// Get the row permutation.
+    pub fn row_perm(&self) -> &Permutation {
+        &self.row_perm
+    }
+
+    /// Get the column permutation.
+    pub fn col_perm(&self) -> &Permutation {
+        &self.col_perm
+    }
+}
+
 #[pymethods]
 impl CanonicalForm {
     #[getter]
-    fn row_perm(&self) -> Vec<usize> {
-        self.row_perm.as_slice().to_vec()
+    fn row_perm_py(&self) -> Vec<usize> {
+        self.row_perm.to_vec()
     }
 
     #[getter]
-    fn col_perm(&self) -> Vec<usize> {
-        self.col_perm.as_slice().to_vec()
+    fn col_perm_py(&self) -> Vec<usize> {
+        self.col_perm.to_vec()
     }
 
     fn __repr__(&self) -> String {
         format!(
             "CanonicalForm(row_perm={:?}, col_perm={:?}, hash={:#x})",
-            self.row_perm, self.col_perm, self.canonical_hash
+            self.row_perm.as_slice(),
+            self.col_perm.as_slice(),
+            self.canonical_hash
         )
     }
 }
@@ -174,8 +188,8 @@ pub fn canonicalize(graph: &AdjacencyMatrix) -> CanonicalForm {
 
     if n_rows == 0 || n_cols == 0 {
         return CanonicalForm {
-            row_perm: (0..n_rows).collect(),
-            col_perm: (0..n_cols).collect(),
+            row_perm: Permutation::identity(n_rows),
+            col_perm: Permutation::identity(n_cols),
             canonical_hash: 0,
         };
     }
@@ -185,39 +199,39 @@ pub fn canonicalize(graph: &AdjacencyMatrix) -> CanonicalForm {
 
     // Step 2: Build canonical ordering by processing partitions
     // Start with a preliminary column order (indices sorted by partition then by index)
-    let mut col_perm: Permutation = col_partitions
+    let mut col_perm_vec: Vec<usize> = col_partitions
         .iter()
         .flat_map(|p| p.iter().copied())
         .collect();
 
     // Step 3: Iteratively refine row and column orderings
     // Order rows lexicographically within each partition based on current column order
-    let mut row_perm: Permutation = Permutation::with_capacity(n_rows);
+    let mut row_perm_vec: Vec<usize> = Vec::with_capacity(n_rows);
     for partition in &row_partitions {
-        let ordered = order_partition_lex(partition, |r| row_signature(graph, r, &col_perm));
-        row_perm.extend(ordered);
+        let ordered = order_partition_lex(partition, |r| row_signature(graph, r, &col_perm_vec));
+        row_perm_vec.extend(ordered);
     }
 
     // Re-order columns based on the new row order
-    col_perm.clear();
+    col_perm_vec.clear();
     for partition in &col_partitions {
-        let ordered = order_partition_lex(partition, |c| col_signature(graph, c, &row_perm));
-        col_perm.extend(ordered);
+        let ordered = order_partition_lex(partition, |c| col_signature(graph, c, &row_perm_vec));
+        col_perm_vec.extend(ordered);
     }
 
     // One more pass to stabilize
-    row_perm.clear();
+    row_perm_vec.clear();
     for partition in &row_partitions {
-        let ordered = order_partition_lex(partition, |r| row_signature(graph, r, &col_perm));
-        row_perm.extend(ordered);
+        let ordered = order_partition_lex(partition, |r| row_signature(graph, r, &col_perm_vec));
+        row_perm_vec.extend(ordered);
     }
 
     // Step 4: Compute canonical hash
-    let canonical_hash = compute_hash(graph, &row_perm, &col_perm);
+    let canonical_hash = compute_hash(graph, &row_perm_vec, &col_perm_vec);
 
     CanonicalForm {
-        row_perm,
-        col_perm,
+        row_perm: Permutation::from_vec_unchecked(row_perm_vec),
+        col_perm: Permutation::from_vec_unchecked(col_perm_vec),
         canonical_hash,
     }
 }
@@ -255,10 +269,10 @@ pub fn are_permutation_equivalent(a: &AdjacencyMatrix, b: &AdjacencyMatrix) -> b
     }
 
     // Verify by comparing actual canonical forms (in case of hash collision)
-    for (i, &ra) in canon_a.row_perm.iter().enumerate() {
-        for (j, &ca) in canon_a.col_perm.iter().enumerate() {
-            let rb = canon_b.row_perm[i];
-            let cb = canon_b.col_perm[j];
+    for (i, &ra) in canon_a.row_perm().iter().enumerate() {
+        for (j, &ca) in canon_a.col_perm().iter().enumerate() {
+            let rb = canon_b.row_perm()[i];
+            let cb = canon_b.col_perm()[j];
             if a.get(ra, ca) != b.get(rb, cb) {
                 return false;
             }
@@ -284,8 +298,8 @@ mod tests {
             vec![false, false, true],
         ]);
         let canon = canonicalize(&m);
-        assert_eq!(canon.row_perm.len(), 3);
-        assert_eq!(canon.col_perm.len(), 3);
+        assert_eq!(canon.row_perm().len(), 3);
+        assert_eq!(canon.col_perm().len(), 3);
     }
 
     #[test]
@@ -347,7 +361,7 @@ mod tests {
         let c2 = canonicalize(&m);
 
         assert_eq!(c1.canonical_hash, c2.canonical_hash);
-        assert_eq!(c1.row_perm, c2.row_perm);
-        assert_eq!(c1.col_perm, c2.col_perm);
+        assert_eq!(c1.row_perm(), c2.row_perm());
+        assert_eq!(c1.col_perm(), c2.col_perm());
     }
 }

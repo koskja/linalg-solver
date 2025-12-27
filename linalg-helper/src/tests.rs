@@ -2,6 +2,7 @@
 
 use rand::prelude::*;
 
+use crate::Permutation;
 use crate::adjacency::AdjacencyMatrix;
 use crate::canonical::{are_permutation_equivalent, canonicalize};
 use crate::dm::dulmage_mendelsohn;
@@ -84,7 +85,11 @@ fn make_block_diagonal_random(block_sizes: &[usize], rng: &mut impl Rng) -> Vec<
 }
 
 /// Apply row and column permutations to a matrix
-fn permute_matrix(matrix: &[Vec<bool>], row_perm: &[usize], col_perm: &[usize]) -> Vec<Vec<bool>> {
+fn permute_matrix(
+    matrix: &[Vec<bool>],
+    row_perm: &Permutation,
+    col_perm: &Permutation,
+) -> Vec<Vec<bool>> {
     let n = matrix.len();
     let m = if n > 0 { matrix[0].len() } else { 0 };
     let mut result = vec![vec![false; m]; n];
@@ -99,10 +104,10 @@ fn permute_matrix(matrix: &[Vec<bool>], row_perm: &[usize], col_perm: &[usize]) 
 }
 
 /// Generate a random permutation of 0..n
-fn random_permutation(n: usize, rng: &mut impl Rng) -> Vec<usize> {
+fn random_permutation(n: usize, rng: &mut impl Rng) -> Permutation {
     let mut perm: Vec<usize> = (0..n).collect();
     perm.shuffle(rng);
-    perm
+    Permutation::from_vec_unchecked(perm)
 }
 
 /// Test that DM decomposition produces a valid block diagonal form
