@@ -1,0 +1,6 @@
+---
+globs: *.rs
+alwaysApply: false
+---
+
+No silent failures: If something may fail, either panic on failure or return Err.
