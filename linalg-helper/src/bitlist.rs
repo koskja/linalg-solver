@@ -12,9 +12,9 @@ pub struct BitList {
 
 impl BitList {
     pub fn zeros(len: usize) -> Self {
-        let byte_len = (len + 7) / 8;
+        let byte_len = len.div_ceil(8);
         let mut data: SmallVec<[u8; INLINE_BIT_BYTES]> = SmallVec::new();
-        data.resize(byte_len.max(1), 0);
+        data.resize(byte_len, 0);
         Self { len, data }
     }
 
@@ -42,18 +42,24 @@ impl BitList {
     }
 
     pub fn get(&self, idx: usize) -> bool {
-        if idx >= self.len {
-            return false;
-        }
+        assert!(
+            idx < self.len,
+            "BitList::get: index {} out of bounds for length {}",
+            idx,
+            self.len
+        );
         let byte_idx = idx / 8;
         let bit_idx = idx % 8;
         (self.data[byte_idx] >> bit_idx) & 1 == 1
     }
 
     pub fn set(&mut self, idx: usize, value: bool) {
-        if idx >= self.len {
-            return;
-        }
+        assert!(
+            idx < self.len,
+            "BitList::set: index {} out of bounds for length {}",
+            idx,
+            self.len
+        );
         let byte_idx = idx / 8;
         let bit_idx = idx % 8;
         if value {

@@ -66,6 +66,7 @@ pub struct AddRow {
 
 /// Raw process variant without the expected nonzeros
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)] // BlockTriangular is larger but boxing adds indirection overhead
 pub enum RawProcess {
     Direct(Direct),
     RowExpansion(RowExpansion),
@@ -273,25 +274,11 @@ where
         return;
     }
 
-    // Verify that the DM decomposition is valid for our purposes
-    // (block sizes should sum to n, and permutations should be valid)
-    let n = matrix.rows;
-    let total_block_size: usize = dm.block_sizes().iter().sum();
-    if total_block_size != n || dm.row_perm().len() != n || dm.col_perm().len() != n {
-        // Invalid decomposition for a square matrix, skip
-        return;
-    }
-
     let mut total_cost = Cost::zero();
     let mut blocks = Vec::new();
     let mut offset = 0;
 
     for &block_size in dm.block_sizes() {
-        if offset + block_size > n {
-            // Safety check - shouldn't happen with valid DM result
-            return;
-        }
-
         // Extract block rows and columns
         let block_rows: Vec<usize> = dm.row_perm().as_slice()[offset..offset + block_size].to_vec();
         let block_cols: Vec<usize> = dm.col_perm().as_slice()[offset..offset + block_size].to_vec();
@@ -474,7 +461,13 @@ fn try_add_row_operations<F>(
                     .filter(|&c| c != pivot_col && matrix.get(src, c) && matrix.get(dst, c))
                     .count();
 
-                let op_cost = Cost::new(src_nnz.saturating_sub(1), overlapping);
+                // src_nnz >= 1 because we checked matrix.get(src, pivot_col) is true above
+                let op_cost = Cost::new(
+                    src_nnz
+                        .checked_sub(1)
+                        .expect("src_nnz >= 1 since src has a non-zero at pivot_col"),
+                    overlapping,
+                );
                 let total_cost = op_cost.add(&sub_cost);
 
                 update_best(
@@ -507,38 +500,29 @@ fn remap_process(process: &Process, row_perm: &[usize], col_perm: &[usize]) -> P
     remap_process_with_inv(process, row_perm, col_perm)
 }
 
-fn remap_nonzeros(nonzeros: &Nonzeros, inv_row: &[usize], inv_col: &[usize]) -> Nonzeros {
-    nonzeros.permute(inv_row, inv_col)
-}
-
+/// Remap the top-level process from canonical indices back to original indices.
+/// Subprocesses (minors, blocks, results) use their own local coordinate systems
+/// and are not remapped - they're already in the correct coordinates for their submatrices.
 fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize]) -> Process {
     let raw = match &process.raw {
         RawProcess::Direct(Direct { size }) => RawProcess::Direct(Direct { size: *size }),
         RawProcess::RowExpansion(RowExpansion { row, minors }) => {
             RawProcess::RowExpansion(RowExpansion {
                 row: inv_row[*row],
+                // Subprocesses use local coordinates - clone without remapping
                 minors: minors
                     .iter()
-                    .map(|(col, p)| {
-                        (
-                            inv_col[*col],
-                            Rc::new(remap_process_with_inv(p, inv_row, inv_col)),
-                        )
-                    })
+                    .map(|(col, p)| (inv_col[*col], p.clone()))
                     .collect(),
             })
         }
         RawProcess::ColExpansion(ColExpansion { col, minors }) => {
             RawProcess::ColExpansion(ColExpansion {
                 col: inv_col[*col],
+                // Subprocesses use local coordinates - clone without remapping
                 minors: minors
                     .iter()
-                    .map(|(row, p)| {
-                        (
-                            inv_row[*row],
-                            Rc::new(remap_process_with_inv(p, inv_row, inv_col)),
-                        )
-                    })
+                    .map(|(row, p)| (inv_row[*row], p.clone()))
                     .collect(),
             })
         }
@@ -547,7 +531,8 @@ fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize
             row_perm,
             col_perm,
         }) => RawProcess::BlockTriangular(BlockTriangular {
-            blocks: blocks.iter().cloned().collect(),
+            // Block subprocesses use local coordinates - clone without remapping
+            blocks: blocks.to_vec(),
             row_perm: row_perm.iter().map(|&r| inv_row[r]).collect(),
             col_perm: col_perm.iter().map(|&c| inv_col[c]).collect(),
         }),
@@ -560,54 +545,61 @@ fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize
             src: inv_row[*src],
             dst: inv_row[*dst],
             pivot_col: inv_col[*pivot_col],
+            // AddRow result is same size as parent - remap recursively
             result: Rc::new(remap_process_with_inv(result, inv_row, inv_col)),
         }),
     };
     Process {
         raw,
-        expected_nonzeros: remap_nonzeros(&process.expected_nonzeros, inv_row, inv_col),
+        expected_nonzeros: process.expected_nonzeros.permute(inv_row, inv_col),
     }
 }
 
-fn canonicalize_nonzeros(nonzeros: &Nonzeros, row_perm: &[usize], col_perm: &[usize]) -> Nonzeros {
-    nonzeros.permute_inv(row_perm, col_perm)
-}
-
-/// Convert a process to canonical form for caching
+/// Convert a process to canonical form for caching.
+/// Only canonicalizes the top-level indices; subprocesses use their own local coordinates
+/// and are not modified.
 fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize]) -> Process {
     // row_perm[canonical_idx] = original_idx
-    // So to go from original to canonical, we use the permutation directly
+    // So to go from original to canonical, we find the position of the original index
     let raw = match &process.raw {
         RawProcess::Direct(Direct { size }) => RawProcess::Direct(Direct { size: *size }),
         RawProcess::RowExpansion(RowExpansion { row, minors }) => {
             // Find canonical index for this row
-            let canon_row = row_perm.iter().position(|&r| r == *row).unwrap();
+            let canon_row = row_perm
+                .iter()
+                .position(|&r| r == *row)
+                .expect("row not found in permutation");
             RawProcess::RowExpansion(RowExpansion {
                 row: canon_row,
+                // Subprocesses use local coordinates - clone without canonicalizing
                 minors: minors
                     .iter()
                     .map(|(col, p)| {
-                        let canon_col = col_perm.iter().position(|&c| c == *col).unwrap();
-                        (
-                            canon_col,
-                            Rc::new(canonicalize_process(p, row_perm, col_perm)),
-                        )
+                        let canon_col = col_perm
+                            .iter()
+                            .position(|&c| c == *col)
+                            .expect("col not found in permutation");
+                        (canon_col, p.clone())
                     })
                     .collect(),
             })
         }
         RawProcess::ColExpansion(ColExpansion { col, minors }) => {
-            let canon_col = col_perm.iter().position(|&c| c == *col).unwrap();
+            let canon_col = col_perm
+                .iter()
+                .position(|&c| c == *col)
+                .expect("col not found in permutation");
             RawProcess::ColExpansion(ColExpansion {
                 col: canon_col,
+                // Subprocesses use local coordinates - clone without canonicalizing
                 minors: minors
                     .iter()
                     .map(|(row, p)| {
-                        let canon_row = row_perm.iter().position(|&r| r == *row).unwrap();
-                        (
-                            canon_row,
-                            Rc::new(canonicalize_process(p, row_perm, col_perm)),
-                        )
+                        let canon_row = row_perm
+                            .iter()
+                            .position(|&r| r == *row)
+                            .expect("row not found in permutation");
+                        (canon_row, p.clone())
                     })
                     .collect(),
             })
@@ -617,14 +609,25 @@ fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize
             row_perm: block_row_perm,
             col_perm: block_col_perm,
         }) => RawProcess::BlockTriangular(BlockTriangular {
-            blocks: blocks.iter().cloned().collect(),
+            // Block subprocesses use local coordinates - clone without canonicalizing
+            blocks: blocks.to_vec(),
             row_perm: block_row_perm
                 .iter()
-                .map(|&r| row_perm.iter().position(|&pr| pr == r).unwrap())
+                .map(|&r| {
+                    row_perm
+                        .iter()
+                        .position(|&pr| pr == r)
+                        .expect("row not found in permutation")
+                })
                 .collect(),
             col_perm: block_col_perm
                 .iter()
-                .map(|&c| col_perm.iter().position(|&pc| pc == c).unwrap())
+                .map(|&c| {
+                    col_perm
+                        .iter()
+                        .position(|&pc| pc == c)
+                        .expect("col not found in permutation")
+                })
                 .collect(),
         }),
         RawProcess::AddRow(AddRow {
@@ -633,20 +636,30 @@ fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize
             pivot_col,
             result,
         }) => {
-            let canon_src = row_perm.iter().position(|&r| r == *src).unwrap();
-            let canon_dst = row_perm.iter().position(|&r| r == *dst).unwrap();
-            let canon_pivot = col_perm.iter().position(|&c| c == *pivot_col).unwrap();
+            let canon_src = row_perm
+                .iter()
+                .position(|&r| r == *src)
+                .expect("src row not found in permutation");
+            let canon_dst = row_perm
+                .iter()
+                .position(|&r| r == *dst)
+                .expect("dst row not found in permutation");
+            let canon_pivot = col_perm
+                .iter()
+                .position(|&c| c == *pivot_col)
+                .expect("pivot col not found in permutation");
             RawProcess::AddRow(AddRow {
                 src: canon_src,
                 dst: canon_dst,
                 pivot_col: canon_pivot,
+                // AddRow result is same size as parent - canonicalize recursively
                 result: Rc::new(canonicalize_process(result, row_perm, col_perm)),
             })
         }
     };
     Process {
         raw,
-        expected_nonzeros: canonicalize_nonzeros(&process.expected_nonzeros, row_perm, col_perm),
+        expected_nonzeros: process.expected_nonzeros.permute_inv(row_perm, col_perm),
     }
 }
 

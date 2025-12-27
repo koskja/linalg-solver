@@ -70,7 +70,7 @@ impl Color {
         Color(vec![label])
     }
 
-    fn from_multiset(own_color: usize, neighbor_colors: &mut Vec<usize>) -> Self {
+    fn from_multiset(own_color: usize, neighbor_colors: &mut [usize]) -> Self {
         neighbor_colors.sort();
         let mut v = vec![own_color];
         v.extend(neighbor_colors.iter());

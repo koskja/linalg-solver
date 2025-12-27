@@ -10,7 +10,9 @@ pub struct Nonzeros {
 
 impl Nonzeros {
     pub fn empty(rows: usize, cols: usize) -> Self {
-        let len = rows.saturating_mul(cols);
+        let len = rows
+            .checked_mul(cols)
+            .expect("Nonzeros::empty: rows * cols overflowed");
         Self {
             rows,
             cols,
@@ -44,24 +46,38 @@ impl Nonzeros {
     }
 
     pub fn contains(&self, row: usize, col: usize) -> bool {
-        self.idx(row, col)
-            .map(|i| self.bits.get(i))
-            .unwrap_or(false)
+        let i = self
+            .idx(row, col)
+            .expect("Nonzeros::contains: index out of bounds");
+        self.bits.get(i)
     }
 
     pub fn set(&mut self, row: usize, col: usize, value: bool) {
-        if let Some(i) = self.idx(row, col) {
-            self.bits.set(i, value);
-        }
+        let i = self
+            .idx(row, col)
+            .expect("Nonzeros::set: index out of bounds");
+        self.bits.set(i, value);
     }
 
     pub fn permute(&self, row_perm: &[usize], col_perm: &[usize]) -> Self {
+        assert_eq!(
+            row_perm.len(),
+            self.rows,
+            "Nonzeros::permute: row_perm length {} does not match rows {}",
+            row_perm.len(),
+            self.rows
+        );
+        assert_eq!(
+            col_perm.len(),
+            self.cols,
+            "Nonzeros::permute: col_perm length {} does not match cols {}",
+            col_perm.len(),
+            self.cols
+        );
         // row_perm/col_perm map old index -> new index
         let mut out = Self::empty(row_perm.len(), col_perm.len());
-        for r_old in 0..self.rows {
-            let r_new = *row_perm.get(r_old).unwrap_or(&r_old);
-            for c_old in 0..self.cols {
-                let c_new = *col_perm.get(c_old).unwrap_or(&c_old);
+        for (r_old, &r_new) in row_perm.iter().enumerate() {
+            for (c_old, &c_new) in col_perm.iter().enumerate() {
                 if self.contains(r_old, c_old) {
                     out.set(r_new, c_new, true);
                 }
@@ -71,12 +87,40 @@ impl Nonzeros {
     }
 
     pub fn permute_inv(&self, row_perm: &[usize], col_perm: &[usize]) -> Self {
+        assert_eq!(
+            row_perm.len(),
+            self.rows,
+            "Nonzeros::permute_inv: row_perm length {} does not match rows {}",
+            row_perm.len(),
+            self.rows
+        );
+        assert_eq!(
+            col_perm.len(),
+            self.cols,
+            "Nonzeros::permute_inv: col_perm length {} does not match cols {}",
+            col_perm.len(),
+            self.cols
+        );
         let mut inv_row = vec![0; row_perm.len()];
         let mut inv_col = vec![0; col_perm.len()];
         for (i, &r) in row_perm.iter().enumerate() {
+            assert!(
+                r < row_perm.len(),
+                "Nonzeros::permute_inv: row_perm[{}] = {} is out of bounds for length {}",
+                i,
+                r,
+                row_perm.len()
+            );
             inv_row[r] = i;
         }
         for (i, &c) in col_perm.iter().enumerate() {
+            assert!(
+                c < col_perm.len(),
+                "Nonzeros::permute_inv: col_perm[{}] = {} is out of bounds for length {}",
+                i,
+                c,
+                col_perm.len()
+            );
             inv_col[c] = i;
         }
         self.permute(&inv_row, &inv_col)

@@ -100,11 +100,11 @@ fn find_h_partition(
             }
         } else {
             // From a column, follow only matching edge
-            if let Some(r) = matching.col_to_row[v] {
-                if !h_rows.contains(&r) {
-                    h_rows.insert(r);
-                    queue.push_back((r, true));
-                }
+            if let Some(r) = matching.col_to_row[v]
+                && !h_rows.contains(&r)
+            {
+                h_rows.insert(r);
+                queue.push_back((r, true));
             }
         }
     }
@@ -142,11 +142,11 @@ fn find_v_partition(
             }
         } else {
             // From a row, follow only matching edge
-            if let Some(c) = matching.row_to_col[v] {
-                if !v_cols.contains(&c) {
-                    v_cols.insert(c);
-                    queue.push_back((c, false));
-                }
+            if let Some(c) = matching.row_to_col[v]
+                && !v_cols.contains(&c)
+            {
+                v_cols.insert(c);
+                queue.push_back((c, false));
             }
         }
     }
@@ -193,14 +193,12 @@ pub fn dulmage_mendelsohn(graph: &AdjacencyMatrix) -> DMResult {
     let mut s_adj: Vec<Vec<usize>> = vec![Vec::new(); s_rows.len()];
     for (idx, &r) in s_rows.iter().enumerate() {
         for c in graph.row_neighbors(r) {
-            if s_cols.contains(&c) {
-                if let Some(matched_r) = matching.col_to_row[c] {
-                    if let Some(&target_idx) = s_row_to_idx.get(&matched_r) {
-                        if target_idx != idx {
-                            s_adj[idx].push(target_idx);
-                        }
-                    }
-                }
+            if s_cols.contains(&c)
+                && let Some(matched_r) = matching.col_to_row[c]
+                && let Some(&target_idx) = s_row_to_idx.get(&matched_r)
+                && target_idx != idx
+            {
+                s_adj[idx].push(target_idx);
             }
         }
     }
@@ -218,12 +216,25 @@ pub fn dulmage_mendelsohn(graph: &AdjacencyMatrix) -> DMResult {
     h_rows_vec.sort(); // Sort by original index to minimize permutation
     h_cols_vec.sort();
     if !h_rows_vec.is_empty() || !h_cols_vec.is_empty() {
+        // Unequal H partition sizes indicate a structurally singular matrix
+        // that cannot be block-decomposed. Return trivial result.
+        if h_rows_vec.len() != h_cols_vec.len() {
+            return DMResult {
+                row_perm: Permutation::identity(rows),
+                col_perm: Permutation::identity(cols),
+                block_sizes: vec![rows],
+            };
+        }
         let pairs: Vec<(usize, usize)> = h_rows_vec
             .iter()
             .zip(h_cols_vec.iter())
             .map(|(&r, &c)| (r, c))
             .collect();
-        let min_row = pairs.iter().map(|&(r, _)| r).min().unwrap_or(usize::MAX);
+        let min_row = pairs
+            .iter()
+            .map(|&(r, _)| r)
+            .min()
+            .expect("H partition pairs is non-empty due to outer condition");
         blocks.push((pairs, min_row));
     }
 
@@ -237,12 +248,17 @@ pub fn dulmage_mendelsohn(graph: &AdjacencyMatrix) -> DMResult {
                 pairs.push((r, c));
             }
         }
+        if pairs.is_empty() {
+            continue;
+        }
         // Sort pairs by original row index within the block
         pairs.sort_by_key(|&(r, _)| r);
-        let min_row = pairs.iter().map(|&(r, _)| r).min().unwrap_or(usize::MAX);
-        if !pairs.is_empty() {
-            blocks.push((pairs, min_row));
-        }
+        let min_row = pairs
+            .iter()
+            .map(|&(r, _)| r)
+            .min()
+            .expect("pairs is non-empty due to check above");
+        blocks.push((pairs, min_row));
     }
 
     // Add V partition (if non-empty)
@@ -251,12 +267,25 @@ pub fn dulmage_mendelsohn(graph: &AdjacencyMatrix) -> DMResult {
     v_rows_vec.sort(); // Sort by original index to minimize permutation
     v_cols_vec.sort();
     if !v_rows_vec.is_empty() || !v_cols_vec.is_empty() {
+        // Unequal V partition sizes indicate a structurally singular matrix
+        // that cannot be block-decomposed. Return trivial result.
+        if v_rows_vec.len() != v_cols_vec.len() {
+            return DMResult {
+                row_perm: Permutation::identity(rows),
+                col_perm: Permutation::identity(cols),
+                block_sizes: vec![rows],
+            };
+        }
         let pairs: Vec<(usize, usize)> = v_rows_vec
             .iter()
             .zip(v_cols_vec.iter())
             .map(|(&r, &c)| (r, c))
             .collect();
-        let min_row = pairs.iter().map(|&(r, _)| r).min().unwrap_or(usize::MAX);
+        let min_row = pairs
+            .iter()
+            .map(|&(r, _)| r)
+            .min()
+            .expect("V partition pairs is non-empty due to outer condition");
         blocks.push((pairs, min_row));
     }
 
@@ -282,18 +311,18 @@ pub fn dulmage_mendelsohn(graph: &AdjacencyMatrix) -> DMResult {
         }
     }
 
-    // Handle case where permutations are incomplete (shouldn't happen with correct algorithm)
-    // but ensure we have valid permutations
-    let row_perm = if row_perm_vec.len() != rows {
-        Permutation::identity(rows)
-    } else {
-        Permutation::from_vec_unchecked(row_perm_vec)
-    };
-    let col_perm = if col_perm_vec.len() != cols {
-        Permutation::identity(cols)
-    } else {
-        Permutation::from_vec_unchecked(col_perm_vec)
-    };
+    // If permutations are incomplete, the matrix is structurally singular
+    // (e.g., has zero rows/columns) and we can't produce a useful decomposition.
+    // Return a trivial single-block result that callers will skip.
+    if row_perm_vec.len() != rows || col_perm_vec.len() != cols {
+        return DMResult {
+            row_perm: Permutation::identity(rows),
+            col_perm: Permutation::identity(cols),
+            block_sizes: vec![rows],
+        };
+    }
+    let row_perm = Permutation::from_vec_unchecked(row_perm_vec);
+    let col_perm = Permutation::from_vec_unchecked(col_perm_vec);
 
     DMResult {
         row_perm,
@@ -335,11 +364,8 @@ fn normalize_block_order(
         for &r in &block_rows[i] {
             for c in graph.row_neighbors(r) {
                 // Check if this column belongs to a later block
-                for j in (i + 1)..n {
-                    if block_cols[j].contains(&c) {
-                        has_edge_to_later[i] = true;
-                        break;
-                    }
+                if block_cols[(i + 1)..].iter().any(|cols| cols.contains(&c)) {
+                    has_edge_to_later[i] = true;
                 }
             }
         }
@@ -383,7 +409,7 @@ mod tests {
             vec![true, true, true],
         ]));
         // Should have 3 blocks of size 1
-        assert!(result.block_sizes().len() >= 1);
+        assert!(!result.block_sizes().is_empty());
     }
 
     #[test]

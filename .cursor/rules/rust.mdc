@@ -3,4 +3,23 @@ globs: *.rs
 alwaysApply: false
 ---
 
+# To code
 No silent failures: If something may fail, either panic on failure or return Err.
+
+# To check
+```
+cd linalg-solver/linalg-helper
+cargo clippy --no-default-features
+```
+
+# To build
+```
+cd linalg-solver
+python3 -m maturin develop -r
+```
+
+# To test
+```
+cd linalg-solver/linalg-helper
+cargo test --no-default-features
+```

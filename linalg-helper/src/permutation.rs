@@ -179,7 +179,11 @@ impl Permutation {
             return 1;
         }
         let (_, num_cycles) = self.get_cycle_decomposition_and_count();
-        if (n - num_cycles) % 2 == 0 { 1 } else { -1 }
+        if (n - num_cycles).is_multiple_of(2) {
+            1
+        } else {
+            -1
+        }
     }
 
     /// Format the permutation in cycle notation for LaTeX.

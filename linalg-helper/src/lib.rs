@@ -2,7 +2,7 @@
 //!
 //! This crate provides optimized algorithms for sparse matrix operations,
 //! exposed to Python via PyO3.
-
+#![allow(clippy::needless_range_loop)]
 use pyo3::prelude::*;
 
 mod adjacency;
@@ -427,7 +427,8 @@ fn perm_to_cycles(perm: &[usize]) -> String {
     let n = perm.len();
 
     // Build inverse: inv[original_idx] = new_position (if it exists in perm)
-    let max_val = perm.iter().copied().max().unwrap_or(0);
+    // SAFETY: perm is non-empty (checked above), so max() will always return Some
+    let max_val = perm.iter().copied().max().expect("perm must be non-empty");
     let mut inv = vec![None; max_val + 1];
     for (new_pos, &orig_idx) in perm.iter().enumerate() {
         if orig_idx < inv.len() {
