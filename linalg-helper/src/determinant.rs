@@ -507,12 +507,12 @@ fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize
         RawProcess::Direct(Direct { size }) => RawProcess::Direct(Direct { size: *size }),
         RawProcess::RowExpansion(RowExpansion { row, minors }) => {
             RawProcess::RowExpansion(RowExpansion {
-                row: inv_row.get(*row).copied().unwrap_or(*row),
+                row: inv_row[*row],
                 minors: minors
                     .iter()
                     .map(|(col, p)| {
                         (
-                            inv_col.get(*col).copied().unwrap_or(*col),
+                            inv_col[*col],
                             Rc::new(remap_process_with_inv(p, inv_row, inv_col)),
                         )
                     })
@@ -521,12 +521,12 @@ fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize
         }
         RawProcess::ColExpansion(ColExpansion { col, minors }) => {
             RawProcess::ColExpansion(ColExpansion {
-                col: inv_col.get(*col).copied().unwrap_or(*col),
+                col: inv_col[*col],
                 minors: minors
                     .iter()
                     .map(|(row, p)| {
                         (
-                            inv_row.get(*row).copied().unwrap_or(*row),
+                            inv_row[*row],
                             Rc::new(remap_process_with_inv(p, inv_row, inv_col)),
                         )
                     })
@@ -539,14 +539,8 @@ fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize
             col_perm,
         }) => RawProcess::BlockTriangular(BlockTriangular {
             blocks: blocks.iter().cloned().collect(),
-            row_perm: row_perm
-                .iter()
-                .map(|&r| inv_row.get(r).copied().unwrap_or(r))
-                .collect(),
-            col_perm: col_perm
-                .iter()
-                .map(|&c| inv_col.get(c).copied().unwrap_or(c))
-                .collect(),
+            row_perm: row_perm.iter().map(|&r| inv_row[r]).collect(),
+            col_perm: col_perm.iter().map(|&c| inv_col[c]).collect(),
         }),
         RawProcess::AddRow(AddRow {
             src,
@@ -554,9 +548,9 @@ fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize
             pivot_col,
             result,
         }) => RawProcess::AddRow(AddRow {
-            src: inv_row.get(*src).copied().unwrap_or(*src),
-            dst: inv_row.get(*dst).copied().unwrap_or(*dst),
-            pivot_col: inv_col.get(*pivot_col).copied().unwrap_or(*pivot_col),
+            src: inv_row[*src],
+            dst: inv_row[*dst],
+            pivot_col: inv_col[*pivot_col],
             result: Rc::new(remap_process_with_inv(result, inv_row, inv_col)),
         }),
     };
@@ -578,13 +572,13 @@ fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize
         RawProcess::Direct(Direct { size }) => RawProcess::Direct(Direct { size: *size }),
         RawProcess::RowExpansion(RowExpansion { row, minors }) => {
             // Find canonical index for this row
-            let canon_row = row_perm.iter().position(|&r| r == *row).unwrap_or(*row);
+            let canon_row = row_perm.iter().position(|&r| r == *row).unwrap();
             RawProcess::RowExpansion(RowExpansion {
                 row: canon_row,
                 minors: minors
                     .iter()
                     .map(|(col, p)| {
-                        let canon_col = col_perm.iter().position(|&c| c == *col).unwrap_or(*col);
+                        let canon_col = col_perm.iter().position(|&c| c == *col).unwrap();
                         (
                             canon_col,
                             Rc::new(canonicalize_process(p, row_perm, col_perm)),
@@ -594,13 +588,13 @@ fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize
             })
         }
         RawProcess::ColExpansion(ColExpansion { col, minors }) => {
-            let canon_col = col_perm.iter().position(|&c| c == *col).unwrap_or(*col);
+            let canon_col = col_perm.iter().position(|&c| c == *col).unwrap();
             RawProcess::ColExpansion(ColExpansion {
                 col: canon_col,
                 minors: minors
                     .iter()
                     .map(|(row, p)| {
-                        let canon_row = row_perm.iter().position(|&r| r == *row).unwrap_or(*row);
+                        let canon_row = row_perm.iter().position(|&r| r == *row).unwrap();
                         (
                             canon_row,
                             Rc::new(canonicalize_process(p, row_perm, col_perm)),
@@ -617,11 +611,11 @@ fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize
             blocks: blocks.iter().cloned().collect(),
             row_perm: block_row_perm
                 .iter()
-                .map(|&r| row_perm.iter().position(|&pr| pr == r).unwrap_or(r))
+                .map(|&r| row_perm.iter().position(|&pr| pr == r).unwrap())
                 .collect(),
             col_perm: block_col_perm
                 .iter()
-                .map(|&c| col_perm.iter().position(|&pc| pc == c).unwrap_or(c))
+                .map(|&c| col_perm.iter().position(|&pc| pc == c).unwrap())
                 .collect(),
         }),
         RawProcess::AddRow(AddRow {
@@ -630,12 +624,9 @@ fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize
             pivot_col,
             result,
         }) => {
-            let canon_src = row_perm.iter().position(|&r| r == *src).unwrap_or(*src);
-            let canon_dst = row_perm.iter().position(|&r| r == *dst).unwrap_or(*dst);
-            let canon_pivot = col_perm
-                .iter()
-                .position(|&c| c == *pivot_col)
-                .unwrap_or(*pivot_col);
+            let canon_src = row_perm.iter().position(|&r| r == *src).unwrap();
+            let canon_dst = row_perm.iter().position(|&r| r == *dst).unwrap();
+            let canon_pivot = col_perm.iter().position(|&c| c == *pivot_col).unwrap();
             RawProcess::AddRow(AddRow {
                 src: canon_src,
                 dst: canon_dst,
