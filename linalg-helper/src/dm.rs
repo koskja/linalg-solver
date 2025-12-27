@@ -17,12 +17,12 @@ use crate::tarjan::tarjan_scc;
 #[derive(Clone)]
 pub struct DMResult {
     /// Row permutation: new_row[i] = old_row[row_perm[i]]
-    pub row_perm: Permutation,
+    row_perm: Permutation,
     /// Column permutation: new_col[j] = old_col[col_perm[j]]
-    pub col_perm: Permutation,
+    col_perm: Permutation,
     /// Sizes of diagonal blocks
     #[pyo3(get)]
-    pub block_sizes: Vec<usize>,
+    block_sizes: Vec<usize>,
 }
 
 impl DMResult {
@@ -34,6 +34,11 @@ impl DMResult {
     /// Get the column permutation.
     pub fn col_perm(&self) -> &Permutation {
         &self.col_perm
+    }
+
+    /// Get the block sizes.
+    pub fn block_sizes(&self) -> &[usize] {
+        &self.block_sizes
     }
 }
 
@@ -366,7 +371,7 @@ mod tests {
             vec![false, true, false],
             vec![false, false, true],
         ]));
-        assert_eq!(result.block_sizes.iter().sum::<usize>(), 3);
+        assert_eq!(result.block_sizes().iter().sum::<usize>(), 3);
     }
 
     #[test]
@@ -378,7 +383,7 @@ mod tests {
             vec![true, true, true],
         ]));
         // Should have 3 blocks of size 1
-        assert!(result.block_sizes.len() >= 1);
+        assert!(result.block_sizes().len() >= 1);
     }
 
     #[test]
@@ -389,7 +394,7 @@ mod tests {
             vec![true, true, true],
             vec![true, true, true],
         ]));
-        assert_eq!(result.block_sizes, vec![3]);
+        assert_eq!(result.block_sizes(), &[3]);
         assert!(!result.is_decomposable());
     }
 
@@ -435,8 +440,8 @@ mod tests {
             "Column permutation should be identity for block diagonal"
         );
         assert_eq!(
-            result.block_sizes,
-            vec![2, 2],
+            result.block_sizes(),
+            &[2, 2],
             "Should have two blocks of size 2"
         );
     }

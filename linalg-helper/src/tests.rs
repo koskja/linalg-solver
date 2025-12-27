@@ -135,45 +135,48 @@ fn test_random_block_diagonal_with_sizes(block_sizes: &[usize], seed: u64) {
     let result = dulmage_mendelsohn(&AdjacencyMatrix::from_vec(permuted.clone()));
 
     // Verify permutations are valid (correct length and contain all indices)
-    assert_eq!(result.row_perm.len(), total_size);
-    assert_eq!(result.col_perm.len(), total_size);
+    assert_eq!(result.row_perm().len(), total_size);
+    assert_eq!(result.col_perm().len(), total_size);
 
-    let mut row_set: Vec<usize> = result.row_perm.as_slice().to_vec();
+    let mut row_set: Vec<usize> = result.row_perm().as_slice().to_vec();
     row_set.sort();
     assert_eq!(row_set, (0..total_size).collect::<Vec<_>>());
 
-    let mut col_set: Vec<usize> = result.col_perm.as_slice().to_vec();
+    let mut col_set: Vec<usize> = result.col_perm().as_slice().to_vec();
     col_set.sort();
     assert_eq!(col_set, (0..total_size).collect::<Vec<_>>());
 
     // The sum of block sizes should equal the matrix size
-    let found_total: usize = result.block_sizes.iter().sum();
+    let found_total: usize = result.block_sizes().iter().sum();
     assert_eq!(
-        found_total, total_size,
+        found_total,
+        total_size,
         "Block sizes sum mismatch: expected {}, got {} (sizes: {:?})",
-        total_size, found_total, result.block_sizes
+        total_size,
+        found_total,
+        result.block_sizes()
     );
 
     // The algorithm may find a finer decomposition (more blocks) than we constructed.
     // This is valid - it means it found structure we didn't explicitly create.
     // However, finding fewer blocks would indicate a bug (merging irreducible blocks).
     assert!(
-        result.block_sizes.len() >= block_sizes.len(),
+        result.block_sizes().len() >= block_sizes.len(),
         "Decomposition found fewer blocks than expected: expected at least {} blocks, got {} (expected: {:?}, found: {:?}, seed: {})",
         block_sizes.len(),
-        result.block_sizes.len(),
+        result.block_sizes().len(),
         block_sizes,
-        result.block_sizes,
+        result.block_sizes(),
         seed
     );
 
     // Apply the found permutation to reorder the matrix
-    let reordered = permute_matrix(&permuted, &result.row_perm, &result.col_perm);
+    let reordered = permute_matrix(&permuted, result.row_perm(), result.col_perm());
 
     // Compute which (i, j) positions are inside some block
     let mut in_some_block = vec![vec![false; total_size]; total_size];
     let mut offset = 0;
-    for &size in &result.block_sizes {
+    for &size in result.block_sizes() {
         for i in offset..offset + size {
             for j in offset..offset + size {
                 in_some_block[i][j] = true;
@@ -189,7 +192,10 @@ fn test_random_block_diagonal_with_sizes(block_sizes: &[usize], seed: u64) {
                 panic!(
                     "Entry ({}, {}) is nonzero but outside all blocks. \
                      Block sizes: {:?}, seed: {}",
-                    i, j, result.block_sizes, seed
+                    i,
+                    j,
+                    result.block_sizes(),
+                    seed
                 );
             }
         }
@@ -263,17 +269,20 @@ fn test_sparse_block_diagonal_with_sizes(block_sizes: &[usize], seed: u64) {
     let result = dulmage_mendelsohn(&AdjacencyMatrix::from_vec(permuted));
 
     // The sum of block sizes should equal the matrix size
-    let found_total: usize = result.block_sizes.iter().sum();
+    let found_total: usize = result.block_sizes().iter().sum();
     assert_eq!(
-        found_total, total_size,
+        found_total,
+        total_size,
         "Block sizes sum mismatch: expected {}, got {} (sizes: {:?})",
-        total_size, found_total, result.block_sizes
+        total_size,
+        found_total,
+        result.block_sizes()
     );
 
     // Sort block sizes for comparison (order may differ)
     let mut expected_sorted = block_sizes.to_vec();
     expected_sorted.sort();
-    let mut found_sorted = result.block_sizes.clone();
+    let mut found_sorted = result.block_sizes().to_vec();
     found_sorted.sort();
 
     assert_eq!(
@@ -327,21 +336,21 @@ fn test_random_permuted_preserves_structure() {
     // Build inverse permutations
     let mut inv_row_perm = vec![0; total_size];
     let mut inv_col_perm = vec![0; total_size];
-    for (new_idx, &old_idx) in result.row_perm.iter().enumerate() {
+    for (new_idx, &old_idx) in result.row_perm().iter().enumerate() {
         inv_row_perm[old_idx] = new_idx;
     }
-    for (new_idx, &old_idx) in result.col_perm.iter().enumerate() {
+    for (new_idx, &old_idx) in result.col_perm().iter().enumerate() {
         inv_col_perm[old_idx] = new_idx;
     }
 
     // Reorder the permuted matrix using the found permutation
-    let reordered = permute_matrix(&permuted, &result.row_perm, &result.col_perm);
+    let reordered = permute_matrix(&permuted, result.row_perm(), result.col_perm());
 
     // Verify block diagonal structure: entries outside blocks should be false
     // First, compute which (i, j) positions are inside some block
     let mut in_some_block = vec![vec![false; total_size]; total_size];
     let mut offset = 0;
-    for &size in &result.block_sizes {
+    for &size in result.block_sizes() {
         for i in offset..offset + size {
             for j in offset..offset + size {
                 in_some_block[i][j] = true;
@@ -357,7 +366,9 @@ fn test_random_permuted_preserves_structure() {
                 panic!(
                     "Entry ({}, {}) is nonzero but outside all blocks. \
                      Block sizes: {:?}",
-                    i, j, result.block_sizes
+                    i,
+                    j,
+                    result.block_sizes()
                 );
             }
         }

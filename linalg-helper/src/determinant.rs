@@ -269,14 +269,14 @@ where
     let dm = dulmage_mendelsohn(matrix);
 
     // Only useful if we have multiple blocks
-    if dm.block_sizes.len() <= 1 {
+    if dm.block_sizes().len() <= 1 {
         return;
     }
 
     // Verify that the DM decomposition is valid for our purposes
     // (block sizes should sum to n, and permutations should be valid)
     let n = matrix.rows;
-    let total_block_size: usize = dm.block_sizes.iter().sum();
+    let total_block_size: usize = dm.block_sizes().iter().sum();
     if total_block_size != n || dm.row_perm().len() != n || dm.col_perm().len() != n {
         // Invalid decomposition for a square matrix, skip
         return;
@@ -286,7 +286,7 @@ where
     let mut blocks = Vec::new();
     let mut offset = 0;
 
-    for &block_size in &dm.block_sizes {
+    for &block_size in dm.block_sizes() {
         if offset + block_size > n {
             // Safety check - shouldn't happen with valid DM result
             return;
@@ -305,8 +305,8 @@ where
     }
 
     // Add cost for multiplying block determinants together
-    if dm.block_sizes.len() > 1 {
-        total_cost = total_cost.add_mults(dm.block_sizes.len() - 1);
+    if dm.block_sizes().len() > 1 {
+        total_cost = total_cost.add_mults(dm.block_sizes().len() - 1);
     }
 
     update_best(
