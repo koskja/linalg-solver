@@ -187,8 +187,7 @@ fn find_optimal_process_cached(
     // Insert a sentinel to prevent infinite recursion
     // This uses direct cost as a fallback if we encounter a cycle
     // Note: We store canonical nonzeros (indices 0..n) as this is for the cached canonical form
-    let canonical_nonzeros = build_nonzeros(matrix)
-        .permute_inv(canon.row_perm().as_slice(), canon.col_perm().as_slice());
+    let canonical_nonzeros = build_nonzeros(matrix).permute_inv(canon.row_perm(), canon.col_perm());
     cache.insert(
         canon.canonical_hash,
         (
@@ -534,9 +533,7 @@ fn remap_process(process: &Process, row_map: &Permutation, col_map: &Permutation
     };
     Process {
         raw,
-        expected_nonzeros: process
-            .expected_nonzeros
-            .permute(row_map.as_slice(), col_map.as_slice()),
+        expected_nonzeros: process.expected_nonzeros.permute(row_map, col_map),
     }
 }
 

@@ -1,5 +1,6 @@
 //! Sparse non-zero storage for adjacency matrices using compact bitlists.
 use crate::bitlist::BitList;
+use crate::permutation::{Permutation, RowColPermutation};
 
 #[derive(Clone, Debug)]
 pub struct Nonzeros {
@@ -59,7 +60,9 @@ impl Nonzeros {
         self.bits.set(i, value);
     }
 
-    pub fn permute(&self, row_perm: &[usize], col_perm: &[usize]) -> Self {
+    /// Permute the matrix using separate row and column permutations.
+    /// row_perm/col_perm map old index -> new index.
+    pub fn permute(&self, row_perm: &Permutation, col_perm: &Permutation) -> Self {
         assert_eq!(
             row_perm.len(),
             self.rows,
@@ -74,7 +77,6 @@ impl Nonzeros {
             col_perm.len(),
             self.cols
         );
-        // row_perm/col_perm map old index -> new index
         let mut out = Self::empty(row_perm.len(), col_perm.len());
         for (r_old, &r_new) in row_perm.iter().enumerate() {
             for (c_old, &c_new) in col_perm.iter().enumerate() {
@@ -86,44 +88,19 @@ impl Nonzeros {
         out
     }
 
-    pub fn permute_inv(&self, row_perm: &[usize], col_perm: &[usize]) -> Self {
-        assert_eq!(
-            row_perm.len(),
-            self.rows,
-            "Nonzeros::permute_inv: row_perm length {} does not match rows {}",
-            row_perm.len(),
-            self.rows
-        );
-        assert_eq!(
-            col_perm.len(),
-            self.cols,
-            "Nonzeros::permute_inv: col_perm length {} does not match cols {}",
-            col_perm.len(),
-            self.cols
-        );
-        let mut inv_row = vec![0; row_perm.len()];
-        let mut inv_col = vec![0; col_perm.len()];
-        for (i, &r) in row_perm.iter().enumerate() {
-            assert!(
-                r < row_perm.len(),
-                "Nonzeros::permute_inv: row_perm[{}] = {} is out of bounds for length {}",
-                i,
-                r,
-                row_perm.len()
-            );
-            inv_row[r] = i;
-        }
-        for (i, &c) in col_perm.iter().enumerate() {
-            assert!(
-                c < col_perm.len(),
-                "Nonzeros::permute_inv: col_perm[{}] = {} is out of bounds for length {}",
-                i,
-                c,
-                col_perm.len()
-            );
-            inv_col[c] = i;
-        }
-        self.permute(&inv_row, &inv_col)
+    /// Permute the matrix using a RowColPermutation.
+    pub fn permute_rowcol(&self, perm: &RowColPermutation) -> Self {
+        self.permute(perm.row(), perm.col())
+    }
+
+    /// Permute the matrix using the inverse of the given permutations.
+    pub fn permute_inv(&self, row_perm: &Permutation, col_perm: &Permutation) -> Self {
+        self.permute(&row_perm.inverse(), &col_perm.inverse())
+    }
+
+    /// Permute the matrix using the inverse of the given RowColPermutation.
+    pub fn permute_rowcol_inv(&self, perm: &RowColPermutation) -> Self {
+        self.permute_rowcol(&perm.inverse())
     }
 
     pub fn to_vec(&self) -> Vec<(usize, usize)> {
