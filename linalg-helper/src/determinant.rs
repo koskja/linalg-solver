@@ -9,6 +9,8 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use pyo3::prelude::*;
+
 use crate::adjacency::AdjacencyMatrix;
 use crate::canonical::canonicalize;
 use crate::dm::dulmage_mendelsohn;
@@ -20,51 +22,65 @@ fn build_nonzeros(matrix: &AdjacencyMatrix) -> Nonzeros {
 }
 
 /// Base case: direct computation (n <= 2)
+#[pyclass]
 #[derive(Clone, Debug)]
 pub struct Direct {
+    #[pyo3(get)]
     pub size: usize,
 }
 
 /// Laplace expansion along a row
+#[pyclass(unsendable)]
 #[derive(Clone, Debug)]
 pub struct RowExpansion {
+    #[pyo3(get)]
     pub row: usize,
     /// (column_index, subprocess) for each non-zero entry
     pub minors: Vec<(usize, Rc<Process>)>,
 }
 
 /// Laplace expansion along a column
+#[pyclass(unsendable)]
 #[derive(Clone, Debug)]
 pub struct ColExpansion {
+    #[pyo3(get)]
     pub col: usize,
     /// (row_index, subprocess) for each non-zero entry
     pub minors: Vec<(usize, Rc<Process>)>,
 }
 
 /// Block triangular decomposition (det = product of block dets)
+#[pyclass(unsendable)]
 #[derive(Clone, Debug)]
 pub struct BlockTriangular {
     /// Processes for each diagonal block
     pub blocks: Vec<Rc<Process>>,
     /// Row permutation to achieve block form
+    #[pyo3(get)]
     pub row_perm: Permutation,
     /// Column permutation to achieve block form
+    #[pyo3(get)]
     pub col_perm: Permutation,
 }
 
 /// Single row operation: add row `src` (scaled) to row `dst` to zero out (dst, pivot_col)
 /// det(original) = det(after_operation), so cost is just the additions + subprocess
+#[pyclass(unsendable)]
 #[derive(Clone, Debug)]
 pub struct AddRow {
+    #[pyo3(get)]
     pub src: usize,
+    #[pyo3(get)]
     pub dst: usize,
     /// Column where dst has a non-zero that we're eliminating
+    #[pyo3(get)]
     pub pivot_col: usize,
     /// Process for the resulting matrix (with one more zero)
     pub result: Rc<Process>,
 }
 
 /// Raw process variant without the expected nonzeros
+#[pyclass(unsendable)]
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)] // BlockTriangular is larger but boxing adds indirection overhead
 pub enum RawProcess {
@@ -76,20 +92,420 @@ pub enum RawProcess {
 }
 
 /// Represents a computation strategy for calculating a determinant
+#[pyclass(unsendable)]
 #[derive(Clone, Debug)]
 pub struct Process {
+    #[pyo3(get)]
     pub raw: RawProcess,
     /// Expected non-zero positions (row, col) in the matrix
+    #[pyo3(get)]
     pub expected_nonzeros: Nonzeros,
 }
 
 /// Cost of a computation strategy
+#[pyclass]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Cost {
     /// Number of multiplications (excluding ×(-1))
+    #[pyo3(get)]
     pub multiplications: usize,
     /// Number of additions (excluding +0)
+    #[pyo3(get)]
     pub additions: usize,
+}
+
+impl RawProcess {
+    fn variant_name(&self) -> &'static str {
+        match self {
+            RawProcess::Direct(_) => "Direct",
+            RawProcess::RowExpansion(_) => "RowExpansion",
+            RawProcess::ColExpansion(_) => "ColExpansion",
+            RawProcess::BlockTriangular(_) => "BlockTriangular",
+            RawProcess::AddRow(_) => "AddRow",
+        }
+    }
+
+    fn repr_summary(&self) -> String {
+        match self {
+            RawProcess::Direct(Direct { size }) => format!("RawProcess::Direct(size={})", size),
+            RawProcess::RowExpansion(RowExpansion { row, minors }) => format!(
+                "RawProcess::RowExpansion(row={}, minors={})",
+                row,
+                minors.len()
+            ),
+            RawProcess::ColExpansion(ColExpansion { col, minors }) => format!(
+                "RawProcess::ColExpansion(col={}, minors={})",
+                col,
+                minors.len()
+            ),
+            RawProcess::BlockTriangular(BlockTriangular {
+                blocks,
+                row_perm,
+                col_perm,
+            }) => format!(
+                "RawProcess::BlockTriangular(blocks={}, row_perm={}, col_perm={})",
+                blocks.len(),
+                perm_to_cycles(&row_perm.to_vec()),
+                perm_to_cycles(&col_perm.to_vec())
+            ),
+            RawProcess::AddRow(AddRow {
+                src,
+                dst,
+                pivot_col,
+                ..
+            }) => format!(
+                "RawProcess::AddRow(src={}, dst={}, pivot_col={})",
+                src, dst, pivot_col
+            ),
+        }
+    }
+}
+
+impl Process {
+    fn compute_size_internal(&self) -> usize {
+        match &self.raw {
+            RawProcess::Direct(Direct { size }) => *size,
+            RawProcess::RowExpansion(RowExpansion { minors, .. }) => {
+                if let Some((_, first_minor)) = minors.first() {
+                    1 + first_minor.compute_size_internal()
+                } else {
+                    1
+                }
+            }
+            RawProcess::ColExpansion(ColExpansion { minors, .. }) => {
+                if let Some((_, first_minor)) = minors.first() {
+                    1 + first_minor.compute_size_internal()
+                } else {
+                    1
+                }
+            }
+            RawProcess::BlockTriangular(BlockTriangular { blocks, .. }) => blocks
+                .iter()
+                .map(|block| block.compute_size_internal())
+                .sum(),
+            RawProcess::AddRow(AddRow { result, .. }) => result.compute_size_internal(),
+        }
+    }
+
+    fn format_tree_internal(&self, indent: usize) -> String {
+        let prefix = "  ".repeat(indent);
+        match &self.raw {
+            RawProcess::Direct(Direct { size }) => format!("{}Direct(size={})", prefix, size),
+            RawProcess::RowExpansion(RowExpansion { row, minors }) => {
+                let mut result = format!("{}RowExpansion(row={}):", prefix, row);
+                for (col, subprocess) in minors {
+                    result.push_str(&format!("\n{}  col={} =>", prefix, col));
+                    result.push_str(&format!(
+                        "\n{}",
+                        subprocess.format_tree_internal(indent + 2)
+                    ));
+                }
+                result
+            }
+            RawProcess::ColExpansion(ColExpansion { col, minors }) => {
+                let mut result = format!("{}ColExpansion(col={}):", prefix, col);
+                for (row, subprocess) in minors {
+                    result.push_str(&format!("\n{}  row={} =>", prefix, row));
+                    result.push_str(&format!(
+                        "\n{}",
+                        subprocess.format_tree_internal(indent + 2)
+                    ));
+                }
+                result
+            }
+            RawProcess::BlockTriangular(BlockTriangular {
+                blocks,
+                row_perm,
+                col_perm,
+            }) => {
+                let row_cycles = perm_to_cycles(&row_perm.to_vec());
+                let col_cycles = perm_to_cycles(&col_perm.to_vec());
+                let mut result = format!(
+                    "{}BlockTriangular(row_perm={}, col_perm={}):",
+                    prefix, row_cycles, col_cycles
+                );
+                for (i, block) in blocks.iter().enumerate() {
+                    result.push_str(&format!("\n{}  block[{}] =>", prefix, i));
+                    result.push_str(&format!("\n{}", block.format_tree_internal(indent + 2)));
+                }
+                result
+            }
+            RawProcess::AddRow(AddRow {
+                src,
+                dst,
+                pivot_col,
+                result,
+            }) => {
+                let mut result_str = format!(
+                    "{}AddRow(src={}, dst={}, pivot_col={}):",
+                    prefix, src, dst, pivot_col
+                );
+                result_str.push_str(&format!("\n{}", result.format_tree_internal(indent + 1)));
+                result_str
+            }
+        }
+    }
+}
+
+fn perm_to_cycles(perm: &[usize]) -> String {
+    if perm.is_empty() {
+        return "()".to_string();
+    }
+
+    let n = perm.len();
+
+    // Build inverse: inv[original_idx] = new_position (if it exists in perm)
+    // SAFETY: perm is non-empty (checked above), so max() will always return Some
+    let max_val = perm.iter().copied().max().expect("perm must be non-empty");
+    let mut inv = vec![None; max_val + 1];
+    for (new_pos, &orig_idx) in perm.iter().enumerate() {
+        if orig_idx < inv.len() {
+            inv[orig_idx] = Some(new_pos);
+        }
+    }
+
+    // Check if this is a proper permutation of 0..n
+    let is_proper_perm = perm.iter().all(|&x| x < n) && {
+        let mut seen = vec![false; n];
+        perm.iter().all(|&x| {
+            if seen[x] {
+                false
+            } else {
+                seen[x] = true;
+                true
+            }
+        })
+    };
+
+    if !is_proper_perm {
+        // Not a standard permutation, just show the mapping
+        let mappings: Vec<String> = perm
+            .iter()
+            .enumerate()
+            .filter(|&(i, &v)| i != v)
+            .map(|(i, v)| format!("{}<-{}", i, v))
+            .collect();
+        if mappings.is_empty() {
+            return "id".to_string();
+        }
+        return format!("[{}]", mappings.join(", "));
+    }
+
+    // Standard permutation - compute cycles
+    let mut visited = vec![false; n];
+    let mut cycles: Vec<Vec<usize>> = Vec::new();
+
+    for start in 0..n {
+        if visited[start] || perm[start] == start {
+            visited[start] = true;
+            continue;
+        }
+
+        let mut cycle = Vec::new();
+        let mut current = start;
+
+        while !visited[current] {
+            visited[current] = true;
+            cycle.push(perm[current]); // Show original indices in cycle
+            current = perm[current];
+        }
+
+        if cycle.len() > 1 {
+            cycles.push(cycle);
+        }
+    }
+
+    if cycles.is_empty() {
+        return "id".to_string();
+    }
+
+    cycles
+        .iter()
+        .map(|cycle| {
+            format!(
+                "({})",
+                cycle
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+#[pymethods]
+impl Direct {
+    fn __repr__(&self) -> String {
+        format!("Direct(size={})", self.size)
+    }
+}
+
+#[pymethods]
+impl RowExpansion {
+    #[getter]
+    fn minors(&self) -> Vec<(usize, Process)> {
+        self.minors
+            .iter()
+            .map(|(col, p)| (*col, p.as_ref().clone()))
+            .collect()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "RowExpansion(row={}, minors={})",
+            self.row,
+            self.minors.len()
+        )
+    }
+}
+
+#[pymethods]
+impl ColExpansion {
+    #[getter]
+    fn minors(&self) -> Vec<(usize, Process)> {
+        self.minors
+            .iter()
+            .map(|(row, p)| (*row, p.as_ref().clone()))
+            .collect()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ColExpansion(col={}, minors={})",
+            self.col,
+            self.minors.len()
+        )
+    }
+}
+
+#[pymethods]
+impl BlockTriangular {
+    #[getter]
+    fn blocks(&self) -> Vec<Process> {
+        self.blocks.iter().map(|p| p.as_ref().clone()).collect()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "BlockTriangular(blocks={}, row_perm={}, col_perm={})",
+            self.blocks.len(),
+            perm_to_cycles(&self.row_perm.to_vec()),
+            perm_to_cycles(&self.col_perm.to_vec())
+        )
+    }
+}
+
+#[pymethods]
+impl AddRow {
+    #[getter]
+    fn result(&self) -> Process {
+        self.result.as_ref().clone()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "AddRow(src={}, dst={}, pivot_col={})",
+            self.src, self.dst, self.pivot_col
+        )
+    }
+}
+
+#[pymethods]
+impl RawProcess {
+    #[getter]
+    fn direct(&self) -> Option<Direct> {
+        match self {
+            RawProcess::Direct(d) => Some(d.clone()),
+            _ => None,
+        }
+    }
+
+    #[getter]
+    fn row_expansion(&self) -> Option<RowExpansion> {
+        match self {
+            RawProcess::RowExpansion(r) => Some(r.clone()),
+            _ => None,
+        }
+    }
+
+    #[getter]
+    fn col_expansion(&self) -> Option<ColExpansion> {
+        match self {
+            RawProcess::ColExpansion(c) => Some(c.clone()),
+            _ => None,
+        }
+    }
+
+    #[getter]
+    fn block_triangular(&self) -> Option<BlockTriangular> {
+        match self {
+            RawProcess::BlockTriangular(b) => Some(b.clone()),
+            _ => None,
+        }
+    }
+
+    #[getter]
+    fn add_row(&self) -> Option<AddRow> {
+        match self {
+            RawProcess::AddRow(a) => Some(a.clone()),
+            _ => None,
+        }
+    }
+
+    /// Name of the variant (e.g., "RowExpansion").
+    fn kind(&self) -> &'static str {
+        self.variant_name()
+    }
+
+    fn __repr__(&self) -> String {
+        self.repr_summary()
+    }
+}
+
+#[pymethods]
+impl Process {
+    fn __repr__(&self) -> String {
+        format!(
+            "Process(raw={}, expected_nonzeros={})",
+            self.raw.repr_summary(),
+            Nonzeros::count(&self.expected_nonzeros)
+        )
+    }
+
+    fn __str__(&self) -> String {
+        self.format_tree_internal(0)
+    }
+
+    /// Compute the matrix size that this process operates on.
+    #[getter]
+    fn size(&self) -> usize {
+        self.compute_size_internal()
+    }
+
+    /// Pretty-print the process tree with indentation.
+    fn format_tree(&self, indent: usize) -> String {
+        self.format_tree_internal(indent)
+    }
+}
+
+#[pymethods]
+impl Cost {
+    fn __repr__(&self) -> String {
+        format!(
+            "Cost(multiplications={}, additions={}, total={})",
+            self.multiplications,
+            self.additions,
+            Cost::total(self)
+        )
+    }
+
+    #[getter]
+    #[pyo3(name = "total")]
+    fn total_py(&self) -> usize {
+        Cost::total(self)
+    }
 }
 
 impl Cost {

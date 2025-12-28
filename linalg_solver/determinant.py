@@ -7,7 +7,7 @@ determinant using the Rust library, then executes that strategy in Python.
 
 from __future__ import annotations
 
-from typing import Any, List, Tuple, TYPE_CHECKING
+from typing import Any, List, Sequence, Tuple, TYPE_CHECKING
 import linalg_helper
 
 from linalg_solver.permutation import RowColPermutation
@@ -26,7 +26,7 @@ def matrix_to_sparsity_pattern(matrix: "Matrix") -> List[List[bool]]:
 
 def check_sparsity(
     matrix: "Matrix",
-    expected_nonzeros: List[Tuple[int, int]],
+    expected_nonzeros: Sequence[Tuple[int, int]],
     rows: List[int],
     cols: List[int],
 ) -> None:
@@ -68,7 +68,7 @@ def check_sparsity(
 
 def find_optimal_process(
     matrix: "Matrix",
-) -> Tuple["linalg_helper.PyCost", "linalg_helper.PyProcess"]:
+) -> Tuple["linalg_helper.Cost", "linalg_helper.Process"]:
     """
     Find the optimal determinant computation process for a matrix.
 
@@ -84,33 +84,33 @@ def find_optimal_process(
     return result.cost, result.process
 
 
-def _get_inner_process(
-    process: "linalg_helper.PyProcess",
+def _get_raw_process(
+    raw: "linalg_helper.RawProcess",
 ) -> tuple:
     """
-    Extract the inner process struct and its type name from a PyProcess enum.
+    Extract the active variant from a RawProcess enum.
 
     Returns:
         A tuple of (inner_process, type_name) where inner_process is one of
-        ProcessDirect, ProcessRowExpansion, etc. and type_name is a string.
+        Direct, RowExpansion, etc. and type_name is a string.
     """
-    if process.direct is not None:
-        return process.direct, "Direct"
-    elif process.row_expansion is not None:
-        return process.row_expansion, "RowExpansion"
-    elif process.col_expansion is not None:
-        return process.col_expansion, "ColExpansion"
-    elif process.block_triangular is not None:
-        return process.block_triangular, "BlockTriangular"
-    elif process.add_row is not None:
-        return process.add_row, "AddRow"
+    if raw.direct is not None:
+        return raw.direct, "Direct"
+    elif raw.row_expansion is not None:
+        return raw.row_expansion, "RowExpansion"
+    elif raw.col_expansion is not None:
+        return raw.col_expansion, "ColExpansion"
+    elif raw.block_triangular is not None:
+        return raw.block_triangular, "BlockTriangular"
+    elif raw.add_row is not None:
+        return raw.add_row, "AddRow"
     else:
         raise ValueError("Unknown process variant")
 
 
 def execute_process(
     matrix: "Matrix",
-    process: "linalg_helper.PyProcess",
+    process: "linalg_helper.Process",
     rows: List[int] = None,
     cols: List[int] = None,
     do_log: bool = False,
@@ -121,7 +121,7 @@ def execute_process(
 
     Args:
         matrix: The full matrix containing the values.
-        process: The PyProcess describing the computation strategy.
+        process: The Process describing the computation strategy.
         rows: Row indices to use (defaults to all rows).
         cols: Column indices to use (defaults to all columns).
         do_log: Whether to log computation steps.
@@ -139,7 +139,8 @@ def execute_process(
     if cols is None:
         cols = list(range(n))
 
-    inner, process_type = _get_inner_process(process)
+    raw_inner, process_type = _get_raw_process(process.raw)
+    expected_entries = process.expected_nonzeros.entries()
 
     # Verify the matrix is at least as sparse as the process expects.
     #
@@ -148,19 +149,19 @@ def execute_process(
     # `expected_nonzeros` corresponds to the *result* of the transformation
     # (after eliminating/swapping), not the input. We therefore validate
     # sparsity after applying the transformation in their respective executors.
-    if process_type not in ("AddRow"):
-        check_sparsity(matrix, inner.expected_nonzeros, rows, cols)
+    if process_type not in ("AddRow",):
+        check_sparsity(matrix, expected_entries, rows, cols)
 
     if process_type == "Direct":
-        return _execute_direct(matrix, inner, rows, cols, do_log, sign)
+        return _execute_direct(matrix, raw_inner, rows, cols, do_log, sign)
     elif process_type == "RowExpansion":
-        return _execute_row_expansion(matrix, inner, rows, cols, do_log, sign)
+        return _execute_row_expansion(matrix, raw_inner, rows, cols, do_log, sign)
     elif process_type == "ColExpansion":
-        return _execute_col_expansion(matrix, inner, rows, cols, do_log, sign)
+        return _execute_col_expansion(matrix, raw_inner, rows, cols, do_log, sign)
     elif process_type == "BlockTriangular":
-        return _execute_block_triangular(matrix, inner, rows, cols, do_log, sign)
+        return _execute_block_triangular(matrix, raw_inner, rows, cols, do_log, sign)
     elif process_type == "AddRow":
-        return _execute_add_row(matrix, inner, rows, cols, do_log, sign)
+        return _execute_add_row(matrix, raw_inner, rows, cols, do_log, sign)
     else:
         raise ValueError(r"Unknown process type: %s" % process_type)
 
@@ -186,7 +187,7 @@ def _build_submatrix_items(
 
 def _execute_direct(
     matrix: "Matrix",
-    process: "linalg_helper.ProcessDirect",
+    process: "linalg_helper.Direct",
     rows: List[int],
     cols: List[int],
     do_log: bool,
@@ -250,7 +251,7 @@ def _execute_direct(
 
 def _execute_row_expansion(
     matrix: "Matrix",
-    process: "linalg_helper.ProcessRowExpansion",
+    process: "linalg_helper.RowExpansion",
     rows: List[int],
     cols: List[int],
     do_log: bool,
@@ -328,7 +329,7 @@ def _execute_row_expansion(
 
 def _execute_col_expansion(
     matrix: "Matrix",
-    process: "linalg_helper.ProcessColExpansion",
+    process: "linalg_helper.ColExpansion",
     rows: List[int],
     cols: List[int],
     do_log: bool,
@@ -414,7 +415,7 @@ def czech_enumeration_join(l: list[str]) -> str:
 
 def _execute_block_triangular(
     matrix: "Matrix",
-    process: "linalg_helper.ProcessBlockTriangular",
+    process: "linalg_helper.BlockTriangular",
     rows: List[int],
     cols: List[int],
     do_log: bool,
@@ -422,8 +423,8 @@ def _execute_block_triangular(
 ) -> Any:
     """Execute block triangular decomposition."""
     blocks = process.blocks
-    row_perm = process.row_perm
-    col_perm = process.col_perm
+    row_perm = process.row_perm.perm
+    col_perm = process.col_perm.perm
 
     # Map permutation indices back to actual row/col indices
     actual_row_perm = [rows[i] for i in row_perm]
@@ -595,7 +596,7 @@ def _polynomial_safe_divide(numerator: Any, denominator: Any) -> Any:
 
 def _execute_add_row(
     matrix: "Matrix",
-    process: "linalg_helper.ProcessAddRow",
+    process: "linalg_helper.AddRow",
     rows: List[int],
     cols: List[int],
     do_log: bool,
@@ -676,8 +677,9 @@ def _execute_add_row(
             log(r"$$ %s $$", make_latex_matrix(new_submatrix_items))
 
         # Compute sub-determinant (which is multiplied by src_pivot)
-        result_inner, _ = _get_inner_process(result_process)
-        check_sparsity(modified_matrix, result_inner.expected_nonzeros, rows, cols)
+        check_sparsity(
+            modified_matrix, result_process.expected_nonzeros.entries(), rows, cols
+        )
         sub_det = execute_process(
             modified_matrix, result_process, rows, cols, do_log, sign
         )
@@ -725,8 +727,9 @@ def _execute_add_row(
             log(r"Po úpravě:")
             log(r"$$ %s $$", make_latex_matrix(new_submatrix_items))
 
-        result_inner, _ = _get_inner_process(result_process)
-        check_sparsity(modified_matrix, result_inner.expected_nonzeros, rows, cols)
+        check_sparsity(
+            modified_matrix, result_process.expected_nonzeros.entries(), rows, cols
+        )
         return execute_process(
             modified_matrix, result_process, rows, cols, do_log, sign
         )

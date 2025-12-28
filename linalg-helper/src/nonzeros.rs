@@ -1,7 +1,11 @@
 //! Sparse non-zero storage for adjacency matrices using compact bitlists.
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
+
 use crate::bitlist::BitList;
 use crate::permutation::{Permutation, RowColPermutation};
 
+#[pyclass]
 #[derive(Clone, Debug)]
 pub struct Nonzeros {
     rows: usize,
@@ -114,8 +118,50 @@ impl Nonzeros {
         }
         entries
     }
+}
 
+#[pymethods]
+impl Nonzeros {
+    #[new]
+    pub fn new(rows: usize, cols: usize, entries: Option<Vec<(usize, usize)>>) -> PyResult<Self> {
+        let mut nz = Nonzeros::empty(rows, cols);
+        if let Some(list) = entries {
+            for (r, c) in list {
+                if r >= rows || c >= cols {
+                    return Err(PyValueError::new_err("Entry out of bounds for Nonzeros"));
+                }
+                nz.set(r, c, true);
+            }
+        }
+        Ok(nz)
+    }
+
+    #[getter]
+    fn rows(&self) -> usize {
+        self.rows
+    }
+
+    #[getter]
+    fn cols(&self) -> usize {
+        self.cols
+    }
+
+    /// Return all non-zero coordinates as (row, col) pairs.
+    fn entries(&self) -> Vec<(usize, usize)> {
+        self.to_vec()
+    }
+
+    /// Number of non-zero entries.
     pub fn count(&self) -> usize {
         self.bits.count_ones()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Nonzeros(rows={}, cols={}, count={})",
+            self.rows,
+            self.cols,
+            self.count()
+        )
     }
 }

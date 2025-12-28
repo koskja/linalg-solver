@@ -1,0 +1,11 @@
+---
+globs: main.py
+alwaysApply: false
+---
+
+Run:
+```fish
+cd linalg-solver
+source .venv/bin/activate.fish
+python3 -m maturin develop -r && python3 main.py
+```
