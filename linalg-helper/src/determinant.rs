@@ -146,11 +146,6 @@ fn direct_cost(size: usize) -> Cost {
     }
 }
 
-/// Extract all non-zero positions from an adjacency matrix
-fn get_nonzeros(matrix: &AdjacencyMatrix) -> Nonzeros {
-    build_nonzeros(matrix)
-}
-
 /// Cache for storing optimal processes by canonical hash
 type ProcessCache = HashMap<u64, (Cost, Process)>;
 
@@ -176,7 +171,7 @@ fn find_optimal_process_cached(
             direct_cost(n),
             Process {
                 raw: RawProcess::Direct(Direct { size: n }),
-                expected_nonzeros: get_nonzeros(matrix),
+                expected_nonzeros: build_nonzeros(matrix),
             },
         );
     }
@@ -185,11 +180,7 @@ fn find_optimal_process_cached(
     let canon = canonicalize(matrix);
     if let Some(cached) = cache.get(&canon.canonical_hash) {
         // Remap the cached process to use original indices
-        let remapped = remap_process(
-            &cached.1,
-            canon.row_perm().as_slice(),
-            canon.col_perm().as_slice(),
-        );
+        let remapped = remap_process(&cached.1, canon.row_perm(), canon.col_perm());
         return (cached.0, remapped);
     }
 
@@ -246,17 +237,13 @@ fn find_optimal_process_cached(
             direct_cost(n),
             Process {
                 raw: RawProcess::Direct(Direct { size: n }),
-                expected_nonzeros: get_nonzeros(matrix),
+                expected_nonzeros: build_nonzeros(matrix),
             },
         )
     });
 
     // Cache the result (in canonical form)
-    let canonical_process = canonicalize_process(
-        &result.1,
-        canon.row_perm().as_slice(),
-        canon.col_perm().as_slice(),
-    );
+    let canonical_process = canonicalize_process(&result.1, canon.row_perm(), canon.col_perm());
     cache.insert(canon.canonical_hash, (result.0, canonical_process));
 
     result
@@ -304,7 +291,7 @@ where
                 row_perm: dm.row_perm().clone(),
                 col_perm: dm.col_perm().clone(),
             }),
-            expected_nonzeros: get_nonzeros(matrix),
+            expected_nonzeros: build_nonzeros(matrix),
         },
     );
 }
@@ -327,7 +314,7 @@ fn try_row_expansion<F>(
             Cost::zero(),
             Process {
                 raw: RawProcess::Direct(Direct { size: n }),
-                expected_nonzeros: get_nonzeros(matrix),
+                expected_nonzeros: build_nonzeros(matrix),
             },
         );
         return;
@@ -359,7 +346,7 @@ fn try_row_expansion<F>(
         total_cost,
         Process {
             raw: RawProcess::RowExpansion(RowExpansion { row, minors }),
-            expected_nonzeros: get_nonzeros(matrix),
+            expected_nonzeros: build_nonzeros(matrix),
         },
     );
 }
@@ -382,7 +369,7 @@ fn try_col_expansion<F>(
             Cost::zero(),
             Process {
                 raw: RawProcess::Direct(Direct { size: n }),
-                expected_nonzeros: get_nonzeros(matrix),
+                expected_nonzeros: build_nonzeros(matrix),
             },
         );
         return;
@@ -414,7 +401,7 @@ fn try_col_expansion<F>(
         total_cost,
         Process {
             raw: RawProcess::ColExpansion(ColExpansion { col, minors }),
-            expected_nonzeros: get_nonzeros(matrix),
+            expected_nonzeros: build_nonzeros(matrix),
         },
     );
 }
@@ -479,7 +466,7 @@ fn try_add_row_operations<F>(
                             pivot_col,
                             result: Rc::new(sub_proc),
                         }),
-                        expected_nonzeros: get_nonzeros(matrix),
+                        expected_nonzeros: build_nonzeros(matrix),
                     },
                 );
             }
@@ -493,36 +480,32 @@ fn try_add_row_operations<F>(
 // strategy would only add overhead without benefit. The SwapRows variant is
 // kept in the Process enum for potential use in execution or future extensions.
 
-/// Remap a process from canonical indices back to original indices
-fn remap_process(process: &Process, row_perm: &[usize], col_perm: &[usize]) -> Process {
-    // Process contains canonical indices. row_perm maps canonical -> original.
-    // So we can use row_perm/col_perm directly to map back.
-    remap_process_with_inv(process, row_perm, col_perm)
-}
-
-/// Remap the top-level process from canonical indices back to original indices.
+/// Remap a process's indices by applying the given index mappings.
+/// `row_map[i]` gives the new row index for canonical row `i`.
+/// `col_map[i]` gives the new column index for canonical column `i`.
+///
 /// Subprocesses (minors, blocks, results) use their own local coordinate systems
 /// and are not remapped - they're already in the correct coordinates for their submatrices.
-fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize]) -> Process {
+fn remap_process(process: &Process, row_map: &Permutation, col_map: &Permutation) -> Process {
     let raw = match &process.raw {
         RawProcess::Direct(Direct { size }) => RawProcess::Direct(Direct { size: *size }),
         RawProcess::RowExpansion(RowExpansion { row, minors }) => {
             RawProcess::RowExpansion(RowExpansion {
-                row: inv_row[*row],
+                row: row_map[*row],
                 // Subprocesses use local coordinates - clone without remapping
                 minors: minors
                     .iter()
-                    .map(|(col, p)| (inv_col[*col], p.clone()))
+                    .map(|(col, p)| (col_map[*col], p.clone()))
                     .collect(),
             })
         }
         RawProcess::ColExpansion(ColExpansion { col, minors }) => {
             RawProcess::ColExpansion(ColExpansion {
-                col: inv_col[*col],
+                col: col_map[*col],
                 // Subprocesses use local coordinates - clone without remapping
                 minors: minors
                     .iter()
-                    .map(|(row, p)| (inv_row[*row], p.clone()))
+                    .map(|(row, p)| (row_map[*row], p.clone()))
                     .collect(),
             })
         }
@@ -533,8 +516,8 @@ fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize
         }) => RawProcess::BlockTriangular(BlockTriangular {
             // Block subprocesses use local coordinates - clone without remapping
             blocks: blocks.to_vec(),
-            row_perm: row_perm.iter().map(|&r| inv_row[r]).collect(),
-            col_perm: col_perm.iter().map(|&c| inv_col[c]).collect(),
+            row_perm: row_map.compose(row_perm),
+            col_perm: col_map.compose(col_perm),
         }),
         RawProcess::AddRow(AddRow {
             src,
@@ -542,125 +525,32 @@ fn remap_process_with_inv(process: &Process, inv_row: &[usize], inv_col: &[usize
             pivot_col,
             result,
         }) => RawProcess::AddRow(AddRow {
-            src: inv_row[*src],
-            dst: inv_row[*dst],
-            pivot_col: inv_col[*pivot_col],
+            src: row_map[*src],
+            dst: row_map[*dst],
+            pivot_col: col_map[*pivot_col],
             // AddRow result is same size as parent - remap recursively
-            result: Rc::new(remap_process_with_inv(result, inv_row, inv_col)),
+            result: Rc::new(remap_process(result, row_map, col_map)),
         }),
     };
     Process {
         raw,
-        expected_nonzeros: process.expected_nonzeros.permute(inv_row, inv_col),
+        expected_nonzeros: process
+            .expected_nonzeros
+            .permute(row_map.as_slice(), col_map.as_slice()),
     }
 }
 
 /// Convert a process to canonical form for caching.
 /// Only canonicalizes the top-level indices; subprocesses use their own local coordinates
 /// and are not modified.
-fn canonicalize_process(process: &Process, row_perm: &[usize], col_perm: &[usize]) -> Process {
+fn canonicalize_process(
+    process: &Process,
+    row_perm: &Permutation,
+    col_perm: &Permutation,
+) -> Process {
     // row_perm[canonical_idx] = original_idx
-    // So to go from original to canonical, we find the position of the original index
-    let raw = match &process.raw {
-        RawProcess::Direct(Direct { size }) => RawProcess::Direct(Direct { size: *size }),
-        RawProcess::RowExpansion(RowExpansion { row, minors }) => {
-            // Find canonical index for this row
-            let canon_row = row_perm
-                .iter()
-                .position(|&r| r == *row)
-                .expect("row not found in permutation");
-            RawProcess::RowExpansion(RowExpansion {
-                row: canon_row,
-                // Subprocesses use local coordinates - clone without canonicalizing
-                minors: minors
-                    .iter()
-                    .map(|(col, p)| {
-                        let canon_col = col_perm
-                            .iter()
-                            .position(|&c| c == *col)
-                            .expect("col not found in permutation");
-                        (canon_col, p.clone())
-                    })
-                    .collect(),
-            })
-        }
-        RawProcess::ColExpansion(ColExpansion { col, minors }) => {
-            let canon_col = col_perm
-                .iter()
-                .position(|&c| c == *col)
-                .expect("col not found in permutation");
-            RawProcess::ColExpansion(ColExpansion {
-                col: canon_col,
-                // Subprocesses use local coordinates - clone without canonicalizing
-                minors: minors
-                    .iter()
-                    .map(|(row, p)| {
-                        let canon_row = row_perm
-                            .iter()
-                            .position(|&r| r == *row)
-                            .expect("row not found in permutation");
-                        (canon_row, p.clone())
-                    })
-                    .collect(),
-            })
-        }
-        RawProcess::BlockTriangular(BlockTriangular {
-            blocks,
-            row_perm: block_row_perm,
-            col_perm: block_col_perm,
-        }) => RawProcess::BlockTriangular(BlockTriangular {
-            // Block subprocesses use local coordinates - clone without canonicalizing
-            blocks: blocks.to_vec(),
-            row_perm: block_row_perm
-                .iter()
-                .map(|&r| {
-                    row_perm
-                        .iter()
-                        .position(|&pr| pr == r)
-                        .expect("row not found in permutation")
-                })
-                .collect(),
-            col_perm: block_col_perm
-                .iter()
-                .map(|&c| {
-                    col_perm
-                        .iter()
-                        .position(|&pc| pc == c)
-                        .expect("col not found in permutation")
-                })
-                .collect(),
-        }),
-        RawProcess::AddRow(AddRow {
-            src,
-            dst,
-            pivot_col,
-            result,
-        }) => {
-            let canon_src = row_perm
-                .iter()
-                .position(|&r| r == *src)
-                .expect("src row not found in permutation");
-            let canon_dst = row_perm
-                .iter()
-                .position(|&r| r == *dst)
-                .expect("dst row not found in permutation");
-            let canon_pivot = col_perm
-                .iter()
-                .position(|&c| c == *pivot_col)
-                .expect("pivot col not found in permutation");
-            RawProcess::AddRow(AddRow {
-                src: canon_src,
-                dst: canon_dst,
-                pivot_col: canon_pivot,
-                // AddRow result is same size as parent - canonicalize recursively
-                result: Rc::new(canonicalize_process(result, row_perm, col_perm)),
-            })
-        }
-    };
-    Process {
-        raw,
-        expected_nonzeros: process.expected_nonzeros.permute_inv(row_perm, col_perm),
-    }
+    // To go from original to canonical, we need inv_perm[original_idx] = canonical_idx
+    remap_process(process, &row_perm.inverse(), &col_perm.inverse())
 }
 
 #[cfg(test)]
