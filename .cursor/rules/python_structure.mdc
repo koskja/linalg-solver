@@ -1,0 +1,33 @@
+---
+description: Rules for Python code structure and modularity in linalg-solver
+globs: linalg_solver/**/*.py, main.py, reseni.py
+---
+
+# Python Code Structure & Style
+
+These rules govern how Python code should be organized and styled.
+
+## 1. Project Context
+- **Language**: Python 3.12+
+- **venv**: Always use the `.venv` virtual environment (as specified in `python.mdc`).
+
+## 2. File Organization
+- Keep matrix operations in `linalg_solver/linalg.py`.
+- Formatting functions in `linalg_solver/fmt.py`.
+- Logging utilities in `linalg_solver/log.py`.
+- Main entry point in `main.py`.
+
+## 2. Code Style
+- Follow **PEP 8** conventions.
+- Use **type hints** for function parameters and return values.
+- Prefer **descriptive variable names**.
+- Keep functions focused and **single-purpose**.
+
+## 3. Avoid God Objects
+**Rule**: Keep classes focused on data and core operations. Move complex internal logic, specialized solvers, or heavy formatting code out of classes and into private module-level functions.
+- **Do not** bloat classes like `Matrix` with every possible helper method.
+- **Do** extract logic into standalone functions (e.g., `_q_find_preimage_of`, `_log_row_reduction_progress`) to improve modularity and testability.
+
+## 4. Formatting & Output
+- Move heavy LaTeX formatting logic out of data classes and into specialized formatting modules or standalone functions.
+- Ensure that data classes remain primarily as containers or thin wrappers around core logic.

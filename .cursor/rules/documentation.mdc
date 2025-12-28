@@ -1,0 +1,17 @@
+---
+description: Rules for documentation and docstrings in linalg-solver
+globs: **/*.py, **/*.rs
+---
+
+# Documentation & Docstrings
+
+These rules govern how the codebase should be documented.
+
+## 1. Python Docstrings
+- **Public Methods**: Document all public methods with docstrings.
+- **Mathematical Notation**: Include appropriate mathematical notation (LaTeX-style) in docstrings where relevant.
+- **Usage Examples**: Provide usage examples for complex operations.
+- **Algorithm Details**: Explain algorithm choices and complexity within the documentation.
+
+## 2. General Documentation
+- Maintain clarity in naming and structure to complement the written documentation.

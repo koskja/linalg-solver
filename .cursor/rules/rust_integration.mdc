@@ -1,0 +1,33 @@
+---
+description: Rules for Rust-Python integration and Rust internal logic in linalg-solver
+globs: **/*.rs, linalg_solver/**/*.py
+---
+
+# Rust-Python Integration & Rust Logic
+
+These rules govern how Rust and Python interact and how Rust internal logic should be structured.
+
+## 1. Logic Placement & Duplication
+**Rule**: **Core logic belongs in Rust.**
+If a mathematical concept or algorithm (e.g., Permutations, Determinant strategy) is needed in both Python and Rust, the implementation **must** reside in Rust. The Python side should merely be a thin wrapper around the Rust logic.
+- **Do not** maintain parallel implementations in both languages.
+- **Do** delete Python implementations when porting to Rust.
+
+## 2. FFI & Binding Strategy
+**Rule**: **Expose internal types directly.**
+When bridging Rust and Python, expose the Rust structs and enums directly using `#[pyclass]` rather than creating separate "transport" classes or dictionaries that require manual mapping.
+- **Do not** write manual mapping code (e.g., `impl From<RustType> for PyObject`) if a direct binding is possible.
+- **Do** use `pyo3` attributes to expose fields and methods directly on the internal Rust types.
+
+## 3. Error Handling & Safety
+**Rule**: **Fail fast on internal invariant violations.**
+For code operating on verified internal structures (like Canonical Forms or Determinant Results), assume validity. Use direct indexing (`[]`), `unwrap()`, or hard `assert!` instead of defensive checks (`get()`, `unwrap_or()`).
+- **Do not** use default values to mask missing data in internal logic.
+- **Do** allow the program to panic if internal invariants (like permutation indices) are violated. This signals a logic bug that must be fixed, not a runtime condition to be handled.
+- **Do** replace soft failures with assertions when the state is expected to be valid.
+
+## 4. Data Structure Design
+**Rule**: **Separate metadata from variant logic.**
+If an `enum` has fields that are common to all variants (metadata), lift them out into a parent `struct` and keep the `enum` strictly for the variant-specific data ("payload").
+- **Do not** duplicate fields like `expected_nonzeros` across every variant of a `Process` enum.
+- **Do** create a container struct (e.g., `Process`) that holds the metadata and wraps the variant enum (e.g., `RawProcess`).

@@ -1,0 +1,40 @@
+---
+description: Rules for LaTeX output and mathematical logging in linalg-solver
+globs: linalg_solver/fmt.py, linalg_solver/log.py, linalg_solver/**/*.py, res.tex
+---
+
+# LaTeX & Mathematical Logging
+
+These rules govern the quality and formatting of LaTeX output and mathematical logging.
+
+## 1. Human-Readable Explanations
+**Rule**: **Prioritize human-readable mathematical explanations.**
+Logs and LaTeX output should explain the *why* and *how* of operations in natural language (and appropriate mathematical notation), rather than dumping raw internal state.
+- **Do not** simply print permutation lists or raw vectors if a description like "swapping rows 2 and 3" is possible.
+- **Do** implement logic (like auto-transpose checks) solely to make the resulting explanation simpler for the human reader.
+- Use **Czech mathematical terminology** where appropriate.
+
+## 2. Formatting Requirements (Legacy & Core)
+- **ALWAYS use raw strings for LaTeX**: Use `r"..."` prefix.
+- **NO character escaping needed**: Raw strings eliminate the need to escape backslashes.
+- **Use percent formatting ONLY**: Use `%s`, `%d`, etc. with the `%` operator.
+- **NEVER use f-strings or .format()** for LaTeX content.
+- **SUPER ULTRA NEVER use raw format strings** (like `rf"..."`).
+- **No %d in log**: When using `log`, ALWAYS use `%s` for ALL types of arguments.
+- **Examples**:
+  ```python
+  # ✅ Correct - Raw string with percent formatting
+  log(r"\textbf{Matrix $A$:} \[ %s \]", matrix)
+  log(r"Eigenvalue $\lambda = %s$ has multiplicity %s", eigenvalue, mult)
+  
+  # ❌ Wrong - f-strings or .format() with LaTeX
+  log(f"\\textbf{{Matrix $A$:}} \\[ {matrix} \\]")  # Don't do this
+  log("\\textbf{{Matrix $A$:}} \\[ {} \\]".format(matrix))  # Don't do this
+  ```
+
+## 3. LaTeX Output Guidelines
+- Generate clean, readable LaTeX code.
+- Use appropriate mathematical environments (`\begin{pmatrix}`, `\begin{array}`, etc.).
+- Format matrices, vectors, and equations properly.
+- **Include step-by-step mathematical derivations.**
+- **Abstraction**: Look to `linalg_solver/fmt.py` and `res.tex` for common patterns to reuse. If using the same pattern multiple times, abstract it (e.g., `\StepSim` in LaTeX).

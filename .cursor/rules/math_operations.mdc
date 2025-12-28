@@ -1,0 +1,21 @@
+---
+description: Rules for mathematical operations and error handling in linalg-solver
+globs: linalg_solver/**/*.py
+---
+
+# Mathematical Operations & Error Handling
+
+These rules govern how mathematical computations and errors should be handled.
+
+## 1. Implementation Strategy
+- **In-house functions**: If possible, use "in-house" functions (e.g., in `linalg.py`) because they log their internal workings for LaTeX output.
+- **SymPy vs Custom**:
+  - If no logging is required, use **SymPy** for symbolic mathematics.
+  - Otherwise, implement the operation yourself with **step-by-step logging**.
+- **Edge Cases**: Always handle edge cases like empty matrices, singular matrices, etc.
+
+## 2. Error Handling
+- **Validation**: Validate matrix dimensions before performing operations.
+- **Graceful Failure**: Handle mathematical edge cases gracefully.
+- **Meaningful Messages**: Provide clear, descriptive error messages.
+- **Persistent Logging**: Log computation steps even when errors occur, so the user can see where the process failed.
