@@ -41,11 +41,14 @@ class Polynomial:
                 res += r"%s" % coef_str
             else:
                 res += r"%s{%s}%s" % (coef_str, var_str, pow_str)
+        # If all coefficients were zero, render as 0 (otherwise LaTeX output becomes blank).
+        if res == "":
+            res = "0"
         if arg_of is None or arg_of == "+":
             return res
         if len(self.powers) <= 1 and not (res.startswith("-") and arg_of == "*"):
             return res
-        return f"({res})"
+        return "(%s)" % res
 
     def multi_add(self, *others: "Polynomial") -> "Polynomial":
         res = self.powers.copy()

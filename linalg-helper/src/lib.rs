@@ -31,7 +31,7 @@ pub use permutation::{Permutation, RowColPermutation};
 pub use tarjan::tarjan_scc;
 
 pub type MatrixIndex = usize;
-pub const INLINE_PERM_CAPACITY: usize = 16;
+pub const INLINE_PERM_CAPACITY: usize = 4;
 
 /// Compute the Dulmage-Mendelsohn decomposition of a matrix.
 ///

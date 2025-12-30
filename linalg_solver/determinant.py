@@ -216,14 +216,21 @@ def _execute_direct(
         result = sign * det
         if do_log:
             submatrix_items = _build_submatrix_items(matrix, rows, cols)
-            sign_str = "" if sign == 1 else "-"
+            # Avoid ugly " - -x" in the rendered LaTeX by parenthesizing
+            # potentially-negative factors in the subtraction term.
+            b_str = cformat(b, arg_of="*")
+            if str(b_str).strip().startswith("-"):
+                b_str = r"\left(%s\right)" % b_str
+            c_str = cformat(c, arg_of="*")
+            if str(c_str).strip().startswith("-"):
+                c_str = r"\left(%s\right)" % c_str
             log(
                 r"$$ \det%s = %s \cdot %s - %s \cdot %s = %s $$",
                 make_latex_matrix(submatrix_items),
                 cformat(a, arg_of="*"),
                 cformat(d, arg_of="*"),
-                cformat(b, arg_of="*"),
-                cformat(c, arg_of="*"),
+                b_str,
+                c_str,
                 cformat(result),
             )
         return result
@@ -426,6 +433,11 @@ def _execute_block_triangular(
     row_perm = process.row_perm.perm
     col_perm = process.col_perm.perm
 
+    rc = RowColPermutation(row_perm, col_perm)
+    perm, t = rc.try_transpose()
+    rp, cp = perm.to_rows_cols_permutations()
+    perm_sign = rp.sign() * cp.sign()
+
     # Map permutation indices back to actual row/col indices
     actual_row_perm = [rows[i] for i in row_perm]
     actual_col_perm = [cols[i] for i in col_perm]
@@ -433,13 +445,11 @@ def _execute_block_triangular(
     if do_log:
         submatrix_items = _build_submatrix_items(matrix, rows, cols)
 
-        rc = RowColPermutation(row_perm, col_perm)
-        perm, t = rc.try_transpose()
-        rp, cp = perm.to_rows_cols_permutations()
-
         steps = []
         if t:
-            steps.append("transpozicí")
+            # NOTE: This is not a mathematical transpose; it's a simultaneous reversal
+            # of row and column order, used purely to reduce permutation cost.
+            steps.append("současným obrácením pořadí řádků i sloupců")
         if not rp.is_id():
             if transpose := rp.try_get_one_transpose():
                 val = pcformat(
@@ -462,14 +472,26 @@ def _execute_block_triangular(
         ut = all([block.size == 1 for block in blocks])
         tvar = "horního trojúhelníkového" if ut else "horního blokově trojúhelníkového"
 
-        log("Matici %s převedeme do %s tvaru:", czech_enumeration_join(steps), tvar)
+        steps_str = czech_enumeration_join(steps)
+        if steps_str:
+            log("Matici %s převedeme do %s tvaru:", steps_str, tvar)
+        else:
+            log("Matici převedeme do %s tvaru:", tvar)
 
         # Build permuted matrix for display
         permuted_items = _build_submatrix_items(
             matrix, actual_row_perm, actual_col_perm
         )
         log(r"$$ %s $$", make_latex_matrix(permuted_items))
-        log(r"Determinant je roven součinu determinantů diagonálních bloků.")
+        # Permuting rows/cols changes determinant by the product of permutation signs.
+        # If B = P A Q, then det(A) = det(P) det(Q) det(B).
+        if perm_sign == -1:
+            log(
+                r"Permutace řádků a sloupců změní determinant znaménkem: $\det(A) = -\det(B)$."
+            )
+        else:
+            log(r"Permutace řádků a sloupců determinant nemění: $\det(A) = \det(B)$.")
+        log(r"V blokově trojúhelníkovém tvaru platí $\det(B)=\prod \det(B_i)$.")
 
     block_dets = []
     offset = 0
@@ -499,7 +521,8 @@ def _execute_block_triangular(
 
         offset += block_size
 
-    result = sign * multi_mul(block_dets)
+    # Account for determinant change under row/column permutations.
+    result = sign * perm_sign * multi_mul(block_dets)
 
     if do_log:
         mul_str = r" \cdot ".join([cformat(d, arg_of="*") for d in block_dets])
